@@ -44,7 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func logLaunchStatus() {
         let trusted = injector.isAccessibilityTrusted
-        AppLogger.log("launch trusted=\(trusted) repo=\(ProjectPaths.repoRoot.path)")
+        let repoPath: String = {
+            if case let .success(url) = ProjectPaths.locateRepoRoot() { return url.path }
+            return "not found"
+        }()
+        AppLogger.log("launch trusted=\(trusted) repo=\(repoPath)")
         if !trusted {
             AppLogger.log("accessibility not trusted — enable toggle then Quit and relaunch", level: "WARN")
         }

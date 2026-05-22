@@ -172,10 +172,17 @@ final class DaemonManager {
     }
 
     private func launchDaemon(completion: @escaping (Error?) -> Void) {
-        let python = ProjectPaths.venvPython
+        guard case let .success(root) = ProjectPaths.locateRepoRoot() else {
+            completion(NSError(domain: "DaemonManager", code: 9, userInfo: [
+                NSLocalizedDescriptionKey: ProjectPaths.LocateError.repositoryNotFound.localizedDescription ?? "Repository not found",
+            ]))
+            return
+        }
+
+        let python = root.appendingPathComponent(".venv/bin/python")
         guard FileManager.default.fileExists(atPath: python.path) else {
             completion(NSError(domain: "DaemonManager", code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "未找到 .venv：请先运行 ./scripts/setup_env.sh",
+                NSLocalizedDescriptionKey: "Python venv not found. Run ./scripts/setup_env.sh first.",
             ]))
             return
         }
@@ -183,9 +190,10 @@ final class DaemonManager {
         let task = Process()
         task.executableURL = python
         task.arguments = ["-m", "asr_daemon"]
-        task.currentDirectoryURL = ProjectPaths.repoRoot
+        task.currentDirectoryURL = root
         var env = ProcessInfo.processInfo.environment
-        env["PYTHONPATH"] = ProjectPaths.repoRoot.path
+        env["PYTHONPATH"] = root.path
+        env["MACOSASR_ROOT"] = root.path
         if env["MACOSASR_PARTIAL_INTERVAL"] == nil {
             env["MACOSASR_PARTIAL_INTERVAL"] = "0.5"
         }

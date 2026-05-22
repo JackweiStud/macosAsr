@@ -6,11 +6,47 @@ macOS 菜单栏本地语音听写：在任意 App 光标处 **边说边出字**�
 
 ---
 
+## Who is this for?
+
+**macosAsr 面向会在 Mac 上 clone、构建、运行的开发者/高级用户**，不是「下载即用」的 App Store 产品。
+
+适合你如果：
+
+- 使用 **macOS 15+ / Apple Silicon**，希望 **本地** 听写（音频不出本机）
+- 接受 `./scripts/setup_env.sh` + `./scripts/build_macapp.sh` 自建流程
+- 主要在备忘录、文本编辑器等场景做 live 听写实验
+
+**不适合**如果你：
+
+- 需要 Mac App Store 一键安装
+- 使用 Intel Mac 或 macOS 14 及以下
+- 不愿授予 **辅助功能**（将文字注入到光标处）
+
+分发方式：**GitHub 开源 + 本机自建**（见 [LICENSE](LICENSE)）。
+
+---
+
+## Third-party licenses
+
+| 组件 | 用途 | 许可 / 说明 |
+|------|------|-------------|
+| **macosAsr 代码** | App + Daemon | [MIT](LICENSE) |
+| **ASR 逻辑来源** | `asr/` 核心 | 衍生自 ASR-QWEN，见 [NOTICE](NOTICE) |
+| **[mlx](https://github.com/ml-explore/mlx)** / **[mlx-audio](https://github.com/ml-explore/mlx-audio)** | 本地推理 | Apache-2.0（以其仓库为准） |
+| **[Qwen3-ASR](https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-8bit)** | 默认语音识别模型 | 首次运行从 Hugging Face 下载；遵守模型卡片与阿里云/Qwen 许可 |
+| **numpy**, **sounddevice** | 音频与数值 | 各自上游许可（BSD / MIT） |
+| **PortAudio**（系统可选依赖） | 麦克风后端 | 见 [portaudio.com](http://www.portaudio.com/) |
+
+模型权重 **不会** 随仓库分发；首次启动需联网下载约 **3 GB**。
+
+---
+
 ## 系统要求
 
 | 项 | 要求 |
 |----|------|
 | 系统 | **macOS 15.0+**（Apple Silicon） |
+| Python | **3.11+**（推荐 3.12；本地曾在 3.14 验证） |
 | 硬件 | 建议 16GB 内存（0.6B 模型） |
 | 工具 | Xcode **Command Line Tools**（`xcode-select --install`） |
 | 可选 | [Homebrew](https://brew.sh)（安装 PortAudio） |
@@ -22,7 +58,7 @@ macOS 菜单栏本地语音听写：在任意 App 光标处 **边说边出字**�
 ### 1. 克隆并进入目录
 
 ```bash
-git clone <你的仓库地址> macosAsr
+git clone https://github.com/<your-org>/macosAsr.git
 cd macosAsr
 ```
 
@@ -83,7 +119,7 @@ brew install portaudio
 3. 对着麦克风说中文
 4. **Stop Live Dictation** 结束
 
-听写中菜单栏显示 **`🟢 状态：听写中…`**。
+听写中菜单栏显示 **`🟢 Dictating…`**。
 
 ---
 
@@ -102,7 +138,7 @@ brew install portaudio
 ## 日常使用（3 步）
 
 ```bash
-cd /Users/jackwl/Code/macosAsr
+cd /path/to/macosAsr
 ./scripts/launch_macapp.sh
 ```
 
@@ -119,14 +155,14 @@ cd /Users/jackwl/Code/macosAsr
 
 ### 高级：partial 刷新间隔
 
-默认 **1.0 秒**（`asr/config.py`）。启动 daemon 前可覆盖：
+默认 **0.5 秒**（`asr/config.py`）。启动 daemon 前可覆盖：
 
 ```bash
 export MACOSASR_PARTIAL_INTERVAL=0.8
 ./scripts/launch_macapp.sh
 ```
 
-数值越小 live 感越强，GPU/注入开销越大。
+数值越小 live 感越强，GPU/注入开销越大。设置页不提供此项调整。
 
 ---
 
@@ -134,7 +170,7 @@ export MACOSASR_PARTIAL_INTERVAL=0.8
 
 | 依赖 | 用途 | 安装方式 |
 |------|------|----------|
-| Python 3.11+ | ASR Daemon | 系统自带 / Homebrew |
+| Python 3.11+ | ASR Daemon | 系统自带 / Homebrew（见上方 Python 行） |
 | `.venv` + `requirements.txt` | Python 包 | `./scripts/setup_env.sh` |
 | PortAudio | 麦克风采集 | `brew install portaudio` |
 | Command Line Tools | 编译 Swift App | `xcode-select --install` |
@@ -180,7 +216,8 @@ tail -20 log/daemon.log
 ## 开发
 
 ```bash
-./scripts/test_p0c.sh           # 编译 + 状态机自测
+./scripts/test_p0c.sh           # Swift 编译 + 状态机自测
+./scripts/ci_smoke.sh             # 本地 CI 冒烟（含 Python import）
 ./scripts/build_macapp.sh
 MacApp/README.md                # MacApp 细节
 docs/dev/LARF.md                # 开发流程

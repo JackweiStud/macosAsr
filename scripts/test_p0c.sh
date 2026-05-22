@@ -17,6 +17,7 @@ SWIFT_SOURCES=(
   MacApp/macosAsrApp/DaemonManager.swift
   MacApp/macosAsrApp/LiveDictationController.swift
   MacApp/macosAsrApp/AppDelegate.swift
+  MacApp/macosAsrApp/main.swift
 )
 
 echo "== P0c-1: swiftc compile MacApp sources =="

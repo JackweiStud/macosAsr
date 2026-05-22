@@ -1,4 +1,5 @@
-mlx
-mlx-audio
-numpy
-sounddevice
+# Pinned for reproducible installs (Python 3.11–3.14 tested on Apple Silicon).
+mlx==0.31.2
+mlx-audio==0.4.3
+numpy==2.4.6
+sounddevice==0.5.5
