@@ -8,6 +8,7 @@
 |------|------|------|
 | `log/daemon.log` | `asr_daemon` | 默认；`python -m asr_daemon` 经 `setup_tee` 镜像 stdout/stderr |
 | `log/asr.log` | `asr` 库 / 测试 | 预留；独立脚本可 `--log-file log/asr.log` |
+| `log/macapp.log` | `MacApp` (Swift) | P0c+；`AppLogger` 追加写入 |
 
 ## 启用方式
 

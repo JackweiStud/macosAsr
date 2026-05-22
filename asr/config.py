@@ -15,7 +15,7 @@ class AsrConfig:
     device: int | None = None
 
     input_block_seconds: float = 0.02
-    partial_interval_seconds: float = 0.25
+    partial_interval_seconds: float = 1.50   # 方案 B：降低 partial 频率减轻注入压力
     partial_min_audio_seconds: float = 0.60
 
     vad_rms_threshold: float = 0.0
@@ -28,6 +28,7 @@ class AsrConfig:
     noise_calibration_seconds: float = 3.0
     noise_multiplier: float = 3.0
     noise_margin: float = 0.003
+    noise_max_threshold: float = 0.05   # 阈值上限；防止嘈杂校准环境屏蔽正常语音
 
     stream_chunk_duration: float = 1200.0
     stream_min_chunk_duration: float = 1.0

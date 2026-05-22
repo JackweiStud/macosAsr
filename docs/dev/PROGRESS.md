@@ -6,12 +6,13 @@
 
 ## Current phase
 
-**P0b — PASS**（T-02/T-03 人声 session-test 已通过，2026-05-22）
+**P0d** — P0c Mock 注入 **PASS**；Live 听写待验收（已修 daemon 等待逻辑）
 
 ## Next actions
 
-1. 进入 **P0c**：Swift TextInjector mock（mock partial → 备忘录光标）
-2. 启动 daemon 勿再用 `>> log/daemon.log`（进程内 `setup_tee` 已写同一文件，会重复落盘）
+1. 重建并启动：`./scripts/build_macapp.sh && ./scripts/launch_macapp.sh`
+2. 备忘录光标 → **Start Live Dictation…** → 对着麦克风说话 → **Stop Live Dictation**
+3. PASS 后进入 **P1**：Fn+V 热键、设置页
 
 ---
 
@@ -131,6 +132,19 @@ python -m asr_daemon.cli_client --session-test --duration 5
 样例 final：`有听到我声音吗？听到请回答，听到请回答。`
 
 **下一里程碑：P0c** Swift 注入 mock（SDD 硬门禁已满足）。
+
+### 周期 #4 Act（P0c，2026-05-22）
+
+**Act：** `MacApp/` Xcode 工程 — Menu Bar + mock 注入。
+
+**Reflect（自动化，2026-05-22）：**
+
+```bash
+./scripts/test_p0c.sh
+# P0c-1 compile PASS | P0c-2 state machine PASS | P0c-3 xcodebuild SKIP (无 Xcode.app)
+```
+
+**Reflect（GUI）：** **PASS**（2026-05-22）— 备忘录 Mock 注入「你好，世界。」；`trusted=true`；见 `log/macapp.log` L37–45。
 
 
 ```bash

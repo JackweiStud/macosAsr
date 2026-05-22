@@ -236,10 +236,12 @@ class PartialEngine:
         if cfg.vad_rms_threshold > 0:
             self._active_threshold = cfg.vad_rms_threshold
         else:
-            self._active_threshold = max(
+            raw = max(
                 cfg.noise_margin,
                 measured_noise_floor * cfg.noise_multiplier + cfg.noise_margin,
             )
+            cap = cfg.noise_max_threshold if cfg.noise_max_threshold > 0 else raw
+            self._active_threshold = min(raw, cap)
 
     def _drain_audio_blocks(self) -> None:
         cfg = self._config
