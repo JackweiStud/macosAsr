@@ -38,7 +38,7 @@ final class LiveDictationController {
         guard isListening else { return }
         DaemonManager.shared.stopSession()
         isListening = false
-        AppLogger.log("live_dictation_stop_sent")
+        AppLogger.log("live_dictation_stop")
     }
 
     private func handle(_ event: DaemonEvent) {
@@ -57,7 +57,6 @@ final class LiveDictationController {
             isListening = false
             stateMachine.onSessionStopped()
             DaemonManager.shared.notifySessionStoppedFromDaemon()
-            AppLogger.log("live_dictation_session_stopped")
         case "error":
             AppLogger.log("daemon_error \(event.message ?? "?")", level: "ERROR")
         default:

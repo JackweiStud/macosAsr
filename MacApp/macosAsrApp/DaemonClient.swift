@@ -60,7 +60,7 @@ final class DaemonClient {
         source.setCancelHandler { [fd] in close(fd) }
         source.resume()
         readSource = source
-        AppLogger.log("daemon_client connected path=\(path)")
+        AppLogger.log("daemon_client connected path=\(path)", level: "DEBUG")
     }
 
     func disconnect() {

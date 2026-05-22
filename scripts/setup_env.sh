@@ -21,6 +21,14 @@ else
 fi
 
 echo ""
-echo "[setup] system dependency (if mic fails): brew install portaudio"
-echo "[setup] activate: source .venv/bin/activate"
-echo "[setup] PYTHONPATH: export PYTHONPATH=\"$ROOT:\${PYTHONPATH:-}\""
+echo "[setup] done."
+echo ""
+echo "系统依赖（若麦克风失败）："
+echo "  brew install portaudio"
+echo ""
+echo "下一步："
+echo "  ./scripts/create_codesign_cert.sh   # 首次，稳定签名"
+echo "  ./scripts/build_macapp.sh"
+echo "  ./scripts/launch_macapp.sh"
+echo ""
+echo "详见 README.md「第一次使用」"

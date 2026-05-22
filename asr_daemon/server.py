@@ -140,7 +140,7 @@ class DaemonServer:
     def _handle_client(self, conn: socket.socket) -> None:
         with self._clients_lock:
             self._clients.append(conn)
-        logger.info("client connected")
+        logger.debug("client connected")
         buffer = ""
         try:
             while self._running:

@@ -1,40 +1,42 @@
-# MacApp — P0c/P0d
+# MacApp — 菜单栏听写
 
-Menu Bar 应用：**Mock 注入** + **Live 听写（接 asr_daemon）**。
+Menu Bar App：**Live 听写**（接 `asr_daemon`）+ **Mock 注入测试**（开发验收）。
 
-## 快速开始（无需 Xcode.app）
+## 构建与启动
 
 ```bash
-cd /Users/jackwl/Code/macosAsr
-./scripts/test_p0c.sh          # 自动化：编译 + 状态机
-./scripts/build_macapp.sh      # 打包 .app
-open MacApp/build/macosAsrApp.app
+cd /path/to/macosAsr
+./scripts/create_codesign_cert.sh   # 首次
+./scripts/build_macapp.sh
+./scripts/launch_macapp.sh
 ```
 
-## 首次运行
+## 菜单栏状态
 
-1. **系统设置 → 辅助功能** — 勾选 **macosAsrApp**
-2. 打开 **备忘录**，光标放在正文
-3. 菜单栏麦克风 → **Start Live Dictation…** → 开始 → 对着麦克风说话
-4. **Stop Live Dictation** 结束
+| 显示 | 含义 |
+|------|------|
+| `⏳ ASR` | Daemon 加载模型 / 校准中 |
+| `🎤 ASR` | 就绪，可 Start Live Dictation |
+| `状态：听写中…` | 听写中 |
+| `⚠️ ASR` | 错误（见 `log/macapp.log`） |
 
-App 会自动 spawn `python -m asr_daemon`（需已 `./scripts/setup_env.sh`）。
+## Live 听写
+
+1. 辅助功能已授权 **macosAsrApp**
+2. 目标 App（备忘录等）光标就位
+3. **Start Live Dictation** → 说话 → **Stop Live Dictation**
+
+App 启动时会自动 `warmUp` daemon，**无需**手动 `python -m asr_daemon`。
 
 ## Mock 测试（P0c）
 
-菜单 **Run Mock Injection Test…** — 期望 final：`你好，世界。`
+菜单 **Run Mock Injection Test…** — 期望备忘录光标处：`你好，世界。`
 
 ## 日志
 
-- `log/macapp.log` — App 运行时
-- `log/daemon.log` — ASR Daemon
+- `log/macapp.log` — 本 App
+- `log/daemon.log` — ASR 后端
 
-环境变量 `MACOSASR_ROOT` 指向仓库根（build 脚本已内置）。
+## 无 Xcode.app 构建
 
-## Xcode（可选）
-
-```bash
-open MacApp/macosAsrApp.xcodeproj
-```
-
-Scheme 已设 `MACOSASR_ROOT=/Users/jackwl/Code/macosAsr`。
+使用 `scripts/build_macapp.sh`（swiftc + bundle）。可选：`open MacApp/macosAsrApp.xcodeproj`

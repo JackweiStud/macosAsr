@@ -209,10 +209,6 @@ final class DaemonManager {
                 if event.modelLoaded == true, event.calibrated == true {
                     completion(.success(()))
                 } else {
-                    AppLogger.log(
-                        "daemon_warming model_loaded=\(event.modelLoaded ?? false) "
-                            + "calibrated=\(event.calibrated ?? false)"
-                    )
                     DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
                         self.connectAndPing(deadline: deadline, completion: completion)
                     }

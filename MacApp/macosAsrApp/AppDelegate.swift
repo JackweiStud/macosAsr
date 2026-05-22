@@ -14,7 +14,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         logLaunchStatus()
-
         if !injector.isAccessibilityTrusted {
             injector.registerForAccessibilityPrompt()
         }
@@ -40,16 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func appDidBecomeActive() {
-        guard injector.isAccessibilityTrusted else { return }
-        AppLogger.log("accessibility trusted after activate")
+        // 不在每次激活时写日志；启动时 logLaunchStatus 已记录 trusted 状态
     }
 
     private func logLaunchStatus() {
         let trusted = injector.isAccessibilityTrusted
-        AppLogger.log(
-            "macosAsrApp launched repo=\(ProjectPaths.repoRoot.path) "
-                + "bundle=\(Bundle.main.bundlePath) trusted=\(trusted)"
-        )
+        AppLogger.log("launch trusted=\(trusted) repo=\(ProjectPaths.repoRoot.path)")
         if !trusted {
             AppLogger.log("accessibility not trusted — enable toggle then Quit and relaunch", level: "WARN")
         }
@@ -57,7 +52,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        AppLogger.log("status_item_created title=ASR")
 
         let menu = NSMenu()
 
@@ -132,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             startStopMenuItem?.title = "Start Live Dictation"
             startStopMenuItem?.isEnabled = true
         case .listening:
-            button.title = "🔴 ASR●"
+            button.title = "状态：听写中…"
             button.contentTintColor = .systemRed
             statusMenuItem?.title = "状态：听写中…"
             startStopMenuItem?.title = "Stop Live Dictation"

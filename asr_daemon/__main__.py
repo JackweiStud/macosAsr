@@ -43,12 +43,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    setup_tee(args.log_file)
+
+    def _log_filter(line: str) -> bool:
+        """跳过模型下载进度条等 stdout 噪音，仍写入 log 文件。"""
+        noisy = (
+            "Fetching ",
+            "Download complete",
+            "Downloading (",
+            "Loading model:",
+            "|########",
+            "\r",
+        )
+        return not any(token in line for token in noisy)
+
+    setup_tee(args.log_file, console_filter=_log_filter)
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # 减少 daemon.log 噪音：不记录 HTTP 请求与模型下载进度条
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
+    logging.getLogger("filelock").setLevel(logging.WARNING)
+
+    import os
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    os.environ.setdefault("TQDM_DISABLE", "1")
 
     config = AsrConfig()
     if args.model:

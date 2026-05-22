@@ -4,7 +4,9 @@ import Foundation
 enum AppLogger {
     private static let queue = DispatchQueue(label: "com.macosasr.applogger")
 
+    /// 默认 INFO；DEBUG 仅 verbose 排查时写入文件。
     static func log(_ message: String, level: String = "INFO") {
+        if level == "DEBUG" { return }
         queue.sync {
             let line = "\(isoTimestamp()) \(level) \(message)\n"
             guard let data = line.data(using: .utf8) else { return }

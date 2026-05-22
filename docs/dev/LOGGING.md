@@ -1,55 +1,40 @@
 # 运行时日志约定
 
-> 对齐 SDD §7、§11 与用户要求：**所有 Python 运行时日志写入项目 `log/`**（目录 gitignore，保留 `log/.gitkeep`）。
+> 对齐 SDD §11：**不记录识别全文**；默认只保留关键生命周期与错误。
 
 ## 日志文件
 
 | 文件 | 组件 | 说明 |
 |------|------|------|
-| `log/daemon.log` | `asr_daemon` | 默认；`python -m asr_daemon` 经 `setup_tee` 镜像 stdout/stderr |
-| `log/asr.log` | `asr` 库 / 测试 | 预留；独立脚本可 `--log-file log/asr.log` |
-| `log/macapp.log` | `MacApp` (Swift) | P0c+；`AppLogger` 追加写入 |
+| `log/daemon.log` | `asr_daemon` | 模型加载、VAD 校准、session 起止 |
+| `log/macapp.log` | `MacApp` | 启动、daemon 状态机、听写起止、错误 |
+| `log/asr.log` | 预留 | 独立脚本可选 |
 
-## 启用方式
+## macapp.log 记什么
 
-Daemon 入口（`asr_daemon/__main__.py`）：
+| 级别 | 示例 |
+|------|------|
+| INFO | `launch trusted=true` · `daemon_state loading -> ready` · `live_dictation_started` · `final len=12` |
+| WARN | 辅助功能未授权 |
+| ERROR | daemon 启动失败、IPC 错误 |
 
-```python
-from asr.run_utils import DEFAULT_DAEMON_LOG, setup_tee
-setup_tee(DEFAULT_DAEMON_LOG)
-```
+**不记录**：每次 partial 注入细节、每次 App 激活、socket 连接、pending 状态机内部步骤。
 
-路径常量见 `asr/run_utils.py`：
+## daemon.log 记什么
 
-- `DEFAULT_DAEMON_LOG` → `<repo>/log/daemon.log`
-- `DEFAULT_ASR_LOG` → `<repo>/log/asr.log`
+| 级别 | 示例 |
+|------|------|
+| INFO | `daemon listening` · `loading model` · `VAD threshold=…` · `session_started/stopped` · `listening=True/False` |
+| DEBUG | `-v` 时 utterance 边界、client 连接 |
+| 已过滤 | httpx 请求、HF 下载进度条、tqdm 行 |
 
-覆盖路径：
-
-```bash
-python -m asr_daemon --log-file log/daemon.debug.log
-```
-
-## 内容策略（SDD §9）
-
-- **默认 INFO**：启动、校准、session、socket；**不记录完整 transcript**
-- DEBUG（`-v`）：VAD 阈值、utterance 边界；仍避免整句刷屏
-- 识别结果仅通过 **IPC JSON 事件** 发给客户端，而非写入日志全文
+启用 DEBUG：`python -m asr_daemon -v`
 
 ## Git
-
-`.gitignore`：
 
 ```
 log/*
 !log/.gitkeep
 ```
 
-本地日志不提交；协作者各自 `log/` 目录。
-
-## 与 LARF Reflect 的关系
-
-Reflect 阶段失败时，在 `PROGRESS.md` 附：
-
-- 复现命令
-- `tail -n 50 log/daemon.log` 中的 **错误行**（勿贴长 transcript）
+本地日志不提交。
