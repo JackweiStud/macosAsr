@@ -1,0 +1,9 @@
+macosAsr contains speech recognition logic derived from ASR-QWEN,
+copied and modified on 2026-05-21.
+
+Source files:
+  - asr/asr_core.py (from ASR-QWEN Script/asr_stream.py)
+  - asr/partial_engine.py (from ASR-QWEN test/test_qwen3_asr_partial_first.py)
+  - asr/run_utils.py (from ASR-QWEN Script/run_utils.py)
+
+This NOTICE is attribution only; macosAsr does not track ASR-QWEN LICENSE files per SDD.
