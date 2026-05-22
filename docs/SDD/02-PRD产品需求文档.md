@@ -11,7 +11,7 @@
 
 ### 1.1 一句话描述
 
-**macosAsr** 是 Mac 上的本地语音听写工具：按住快捷键说话，识别结果 **边说边出现在任意 App 的光标处**，无需云端、无需切换 App。
+**macosAsr** 是 Mac 上的本地语音听写工具：当前可直接试用的入口是菜单栏 **Start Live Dictation / Stop Live Dictation**；后续版本再引入按住快捷键说话，识别结果 **边说边出现在任意 App 的光标处**，无需云端、无需切换 App。
 
 ### 1.2 产品定位
 
@@ -32,7 +32,7 @@
 
 | 指标 | 目标 |
 |------|------|
-| 核心路径可用率 | 备忘录 + 1 个 IDE 中 PTT live 听写成功率 ≥ 95% |
+| 核心路径可用率 | 备忘录 + 1 个 IDE 中菜单触发 live 听写成功率 ≥ 95% |
 | 首 partial 主观可感知 | 用户感觉「说完前半句就开始出字」 |
 | 权限引导完成率 | 新用户 5 分钟内完成三项授权并完成首次听写 |
 | 崩溃率 | Daemon + App 联合会话崩溃 < 1% |
@@ -127,14 +127,14 @@ flowchart TB
 
 ### 4.2 交互设计
 
-#### 4.2.1 主流程（PTT）
+#### 4.2.1 主流程（当前版本：菜单栏 Start/Stop）
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle: App 启动 / Daemon ready
-    Idle --> Listening: 用户按住快捷键
+    Idle --> Listening: 用户点击 Start Live Dictation
     Listening --> Listening: partial 更新光标
-    Listening --> Idle: 用户松键 + final 完成
+    Listening --> Idle: 用户点击 Stop Live Dictation + final 完成
     Idle --> Error: Daemon 不可用
     Error --> Idle: 自动恢复 / 用户重试
 ```
@@ -142,7 +142,7 @@ stateDiagram-v2
 **Idle（空闲）**
 
 - Menu Bar 图标：灰色麦克风
-- 快捷键：可响应 PTT
+- 菜单栏：可响应 Start/Stop
 
 **Listening（听写中）**
 
@@ -155,26 +155,27 @@ stateDiagram-v2
 
 | 模式 | MVP | 行为 |
 |------|-----|------|
-| PTT | ✅ 默认 | 按下开始 Session；松开结束并 flush |
-| Toggle | ❌ P1 | 按一次开始，再按一次结束 |
+| 菜单触发 | ✅ 当前版本 | 通过 Start Live Dictation / Stop Live Dictation 控制会话 |
+| PTT | ❌ P1 | 按下开始 Session；松开结束并 flush |
+| Toggle | ❌ P2 | 按一次开始，再按一次结束 |
 
-**默认快捷键策略（用户偏好：Fn 系组合优先；须避免与本机冲突）**
+**后续快捷键策略（当前版本不启用）**
 
-规格 **推荐默认** 为 **`Fn + V` 按住（PTT）**，但仍允许首次启动时改选。
+若后续启用全局快捷键，规格 **推荐候选** 为 **`Fn + V` 按住（PTT）**，但当前版本不暴露该入口。
 
 **Fn 键在 macOS 15 上的约束**
 
 | 情况 | 影响 |
 |------|------|
-| 系统设置 → 键盘 →「按下 fn 键以」= **启动听写** | 与 **单按 Fn / Fn 双击** 冲突；向导须提示改为「无操作」或改选 `Fn + 字母` |
+| 系统设置 → 键盘 →「按下 fn 键以」= **启动听写** | 与 **单按 Fn / Fn 双击** 冲突；若后续启用快捷键，向导须提示改为「无操作」或改选 `Fn + 字母` |
 | 系统设置 = **显示表情与符号** / **切换输入法** | 单按 Fn 被占用；**`Fn + V` 等组合键通常不受影响** |
-| `CGEventTap` 捕获 | 需输入监控；`Fn + 键` 比单 Fn 更稳定，**MVP 首选** |
+| `CGEventTap` 捕获 | 需输入监控；`Fn + 键` 比单 Fn 更稳定，后续快捷键方案可优先考虑 |
 
-**候选列表**（在 **macOS 15.3.1** 开发机上实测；按优先级排序）：
+**候选列表**（仅供后续快捷键方案使用，在 **macOS 15.3.1** 开发机上实测；按优先级排序）：
 
 | 优先级 | 候选 | 模式 | 说明 |
 |--------|------|------|------|
-| **1（推荐默认）** | **`Fn + V`** | PTT 按住 | V = Voice；与 Spotlight/输入法冲突面小；符合用户 Fn 偏好 |
+| **1（推荐候选）** | **`Fn + V`** | PTT 按住 | V = Voice；与 Spotlight/输入法冲突面小；符合用户 Fn 偏好 |
 | 2 | `Fn + D` | PTT 按住 | D = Dictation；备选 |
 | 3 | `Fn` 双击 | Toggle（P1） | 类似部分听写 App；需单独实现双击检测，**不进 MVP 默认** |
 | 4 | `Right Control` 按住 | PTT | Fn 不可用时 fallback |
@@ -184,8 +185,8 @@ stateDiagram-v2
 
 **首次启动向导**
 
-1. 检测系统「按下 fn 键以」设置；若与所选组合冲突 → 说明 + 引导修改系统设置或换候选  
-2. 默认展示 **`Fn + V`（按住说话）**；用户可 **确认或录制自定义**  
+1. 如果后续启用快捷键，检测系统「按下 fn 键以」设置；若与所选组合冲突 → 说明 + 引导修改系统设置或换候选  
+2. 后续默认展示 **`Fn + V`（按住说话）**；用户可 **确认或录制自定义**  
 3. 写入 `config.json` 后启用 PTT  
 
 **冲突参考**（非穷尽）：`⌘Space`、`⌃Space`、系统听写、`Raycast/Alfred` 用户热键 — 见 `docs/hotkey-conflicts.md`（实现阶段维护）。
@@ -208,7 +209,7 @@ flowchart TD
 
 | 阶段 | 用户看到 | 系统行为 |
 |------|----------|----------|
-| T0 | 按住 **`Fn + V`**（或已配置的组合） | Session 开始，无文字 |
+| T0 | 点击 **Start Live Dictation**（或后续已配置的快捷键） | Session 开始，无文字 |
 | T0+0.8~2s | 首词/首字出现 | 首个 partial 注入 |
 | 说话中 | 文字随语音变长/修正 | 退格 pending + 新 partial |
 | 停顿/松键 | 文字稳定为 final | final 替换 partial |
@@ -271,7 +272,7 @@ flowchart TD
 | 复制策略 | **去掉报告/CLI 冗余** | Daemon 更干净 |
 | 运行环境 | **全部在 macosAsr 内** | venv + 配置自包含 |
 | 进程模型 | **Swift App + Python Daemon** | 各取所长 |
-| MVP 触发 | **PTT only** | 简单、符合 hold-to-talk 心智 |
+| MVP 触发 | **菜单 Start/Stop** | 与当前 README 一致，外部用户一眼可试用 |
 
 ### 5.2 竞品对比（简化）
 
@@ -301,7 +302,7 @@ gantt
     section P0 核心
     ASR 复制 + Daemon  :p0a, after sdd, 5d
     注入原型 mock        :p0b, after p0a, 4d
-    端到端 PTT live      :p0c, after p0b, 5d
+    端到端 live          :p0c, after p0b, 5d
 
     section P1 产品化
     设置 + 权限引导      :p1, after p0c, 7d
@@ -324,7 +325,7 @@ gantt
 
 **Must Have**
 
-- PTT、live partial、final、备忘录 + IDE  
+- 菜单 Start/Stop、live partial、final、备忘录 + IDE  
 - Menu Bar、基础权限引导  
 - macosAsr 内 venv 与 ASR 代码
 
