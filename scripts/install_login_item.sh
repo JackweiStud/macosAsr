@@ -18,8 +18,11 @@ EOF
 }
 
 install_item() {
+  "$ROOT/scripts/sync_repo_launcher.sh"
+  LAUNCHER="${HOME}/Library/Application Support/macosAsr/launch.sh"
+
   if [[ ! -d "$ROOT/MacApp/build/macosAsrApp.app" ]]; then
-    echo "[login] 未找到 App，先构建…"
+    echo "[login] App not found — building…"
     "$ROOT/scripts/build_macapp.sh"
   fi
 
@@ -33,9 +36,7 @@ install_item() {
 	<string>${LABEL}</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/bin/bash</string>
-		<string>-lc</string>
-		<string>${ROOT}/scripts/launch_macapp.sh</string>
+		<string>${LAUNCHER}</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -47,8 +48,9 @@ EOF
 
   launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$PLIST"
-  echo "[login] 已安装登录项: $PLIST"
-  echo "[login] 下次登录后将自动启动 macosAsr"
+  echo "[login] Installed login item: $PLIST"
+  echo "[login] macosAsr will start on next login"
+  echo "[login] If you move the clone, re-run: $0 install"
 }
 
 uninstall_item() {

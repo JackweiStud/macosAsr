@@ -126,6 +126,31 @@ brew install portaudio
 
 听写中菜单栏显示 **`🟢 Dictating…`**。
 
+### 8.（可选）桌面快捷方式
+
+若只用命令行启动，可跳过本节。
+
+```bash
+./scripts/install_desktop_shortcut.sh
+```
+
+会在 **`~/Desktop/macosAsr.app`** 创建启动器图标，双击效果等同 `./scripts/launch_macapp.sh`。
+
+仓库路径写入 `~/Library/Application Support/macosAsr/repo_root`（不会写死在 Desktop 应用里）。**若移动了 clone 目录**，请在新路径下重新运行上述安装命令。
+
+---
+
+## 为何需要代码签名？
+
+macOS 的 **辅助功能** 授权绑定在 App 的 **代码身份** 上：
+
+| 签名方式 | 每次 `./scripts/build_macapp.sh` 之后 |
+|----------|----------------------------------------|
+| **Ad-hoc**（`codesign -`） | 签名 hash 变化 → 辅助功能常 **失效**，需重新授权 |
+| **`macosAsr Local`**（推荐） | 身份稳定 → 开关通常 **可保留** |
+
+第 3 步的 `create_codesign_cert.sh` 创建的是 **本机自签** 证书，用于开发自用，不是 Apple 开发者账号，也与 App Store 无关。跳过也可构建（回退 ad-hoc），但权限更容易反复失效。
+
 ---
 
 ## 启动方式（三选一）
@@ -133,10 +158,17 @@ brew install portaudio
 | 方式 | 命令 / 操作 | 说明 |
 |------|-------------|------|
 | **命令行（推荐开发）** | `./scripts/launch_macapp.sh` | 自动设置 `MACOSASR_ROOT`，结束旧实例；无 daemon 时清理残留 socket |
-| **桌面一键** | `./scripts/install_desktop_shortcut.sh` → 双击桌面 **macosAsr.app** | 绿色麦克风图标；首次需 build |
-| **登录自启** | `./scripts/install_login_item.sh install` | 用户登录 macOS 后自动启动；移除：`uninstall` |
+| **桌面一键** | `./scripts/install_desktop_shortcut.sh` → 双击 **`~/Desktop/macosAsr.app`** | 路径写入 Application Support；移动 clone 后需重新安装 |
+| **登录自启** | `./scripts/install_login_item.sh install` | 共用 `launch.sh`；移除：`uninstall` |
 
 退出 App（菜单 **Quit ⌘Q**）时会 **同时关闭 asr_daemon**，释放模型内存。
+
+### 桌面快捷方式说明
+
+1. 在 clone 目录执行一次：`./scripts/install_desktop_shortcut.sh`
+2. 桌面出现麦克风图标 **`macosAsr.app`**（启动包装器，不是完整 App 副本）
+3. 实际通过 `~/Library/Application Support/macosAsr/launch.sh` 读取 `repo_root` 定位仓库
+4. **换目录 clone 或移动文件夹后**：在新路径重新运行安装脚本
 
 ---
 
@@ -217,6 +249,7 @@ tail -20 log/daemon.log
 | codesign 卡住 | 运行 `./scripts/setup_codesign_acl.sh` |
 | Quit 灰色无法退出 | 已修复：Quit 需指向 App 自身 action；请 rebuild 后重试 |
 | 退出后 daemon 仍占内存 | 正常：Quit 会发 shutdown；若异常残留可 `pkill -f asr_daemon` |
+| 桌面快捷方式移动仓库后失效 | 在新路径重新运行 `./scripts/install_desktop_shortcut.sh` |
 
 ---
 

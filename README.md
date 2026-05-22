@@ -128,6 +128,31 @@ Menu bar shows **`⏳ ASR`**, then **`🎤 ASR`** after ~30s (model load + 3s no
 
 While dictating, the menu bar shows **`🟢 Dictating…`**.
 
+### 8. (Optional) Desktop shortcut
+
+Skip this if you prefer `./scripts/launch_macapp.sh` only.
+
+```bash
+./scripts/install_desktop_shortcut.sh
+```
+
+Creates **`~/Desktop/macosAsr.app`** (launcher icon). Double-click to start — same as `launch_macapp.sh`.
+
+The clone path is stored in `~/Library/Application Support/macosAsr/repo_root` (not baked into the Desktop app). **If you move the repository**, re-run the install script above.
+
+---
+
+## Why code signing?
+
+macOS **Accessibility** permission is tied to the app’s **code identity**. Without a stable certificate:
+
+| Signing | After each `./scripts/build_macapp.sh` |
+|---------|----------------------------------------|
+| **Ad-hoc** (`codesign -`) | Signature hash changes → Accessibility often **breaks**; you must re-authorize |
+| **`macosAsr Local`** (recommended) | Same identity → toggle usually **stays valid** across rebuilds |
+
+Step 3 (`create_codesign_cert.sh`) creates a **local self-signed** cert for development — not Apple Developer Program, not App Store. You can build without it (falls back to ad-hoc), but expect more permission friction.
+
 ---
 
 ## Launch options
@@ -135,10 +160,17 @@ While dictating, the menu bar shows **`🟢 Dictating…`**.
 | Method | Command / action | Notes |
 |--------|------------------|-------|
 | **CLI (dev)** | `./scripts/launch_macapp.sh` | Sets `MACOSASR_ROOT`, kills old instance, cleans stale socket |
-| **Desktop** | `./scripts/install_desktop_shortcut.sh` → double-click **macosAsr.app** | Mic icon; build first |
-| **Login item** | `./scripts/install_login_item.sh install` | Start at login; remove: `uninstall` |
+| **Desktop** | `./scripts/install_desktop_shortcut.sh` then double-click **`~/Desktop/macosAsr.app`** | Writes `Application Support/macosAsr/repo_root`; re-run install if you move the clone |
+| **Login item** | `./scripts/install_login_item.sh install` | Uses same `launch.sh`; remove: `uninstall` |
 
 **Quit (⌘Q)** shuts down the app **and** `asr_daemon`, freeing model memory.
+
+### Desktop shortcut details
+
+1. Run once from your clone: `./scripts/install_desktop_shortcut.sh`
+2. A mic-icon **`macosAsr.app`** appears on the Desktop (wrapper, not a copy of the full build)
+3. Path resolution: `~/Library/Application Support/macosAsr/launch.sh` reads `repo_root`
+4. After **`git clone` to a new directory** or moving the folder: run the install script again
 
 ---
 
@@ -217,6 +249,7 @@ tail -20 log/daemon.log
 | codesign hangs | Run `./scripts/setup_codesign_acl.sh` |
 | Quit greyed out | Rebuild (Quit must target the app action) |
 | Daemon still in memory after quit | Quit sends shutdown; if stuck: `pkill -f asr_daemon` |
+| Desktop shortcut fails after moving repo | Re-run `./scripts/install_desktop_shortcut.sh` from the new clone path |
 
 ---
 
