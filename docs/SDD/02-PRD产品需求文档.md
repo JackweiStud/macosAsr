@@ -11,7 +11,7 @@
 
 ### 1.1 一句话描述
 
-**macosAsr** 是 Mac 上的本地语音听写工具：当前可直接试用的入口是菜单栏 **Start Live Dictation / Stop Live Dictation**；后续版本再引入按住快捷键说话，识别结果 **边说边出现在任意 App 的光标处**，无需云端、无需切换 App。
+**macosAsr** 是 Mac 上的本地语音听写工具：当前可直接试用的入口是 **全局 ⌥Z Toggle** 或菜单栏 **Start Live Dictation / Stop Live Dictation**，识别结果 **边说边出现在任意 App 的光标处**，无需云端、无需切换 App。
 
 ### 1.2 产品定位
 
@@ -127,41 +127,51 @@ flowchart TB
 
 ### 4.2 交互设计
 
-#### 4.2.1 主流程（当前版本：菜单栏 Start/Stop）
+#### 4.2.1 主流程（当前版本：⌥Z Toggle + 菜单 Start/Stop）
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle: App 启动 / Daemon ready
-    Idle --> Listening: 用户点击 Start Live Dictation
+    Idle --> Listening: 用户按 ⌥Z 或点击 Start Live Dictation
     Listening --> Listening: partial 更新光标
-    Listening --> Idle: 用户点击 Stop Live Dictation + final 完成
+    Listening --> Idle: 用户再按 ⌥Z 或 Stop Live Dictation + final 完成
     Idle --> Error: Daemon 不可用
     Error --> Idle: 自动恢复 / 用户重试
 ```
 
 **Idle（空闲）**
 
-- Menu Bar 图标：灰色麦克风
-- 菜单栏：可响应 Start/Stop
+- Menu Bar 图标：`🎤 ASR`（就绪）或 `⏳ ASR`（加载中）
+- 菜单栏 / **⌥Z**：可 Start
 
 **Listening（听写中）**
 
-- Menu Bar 图标：红色麦克风
-- 可选：屏幕顶部细条「正在听写，请勿编辑键盘」
+- Menu Bar 图标：`🟢 Dictating…`
 - 用户说话 → partial live 写入光标
-- 用户松键 → 强制 flush final → 回到 Idle
+- 再按 **⌥Z** 或菜单 Stop → flush final → 回到 Idle
 
 #### 4.2.2 快捷键行为
 
-| 模式 | MVP | 行为 |
-|------|-----|------|
-| 菜单触发 | ✅ 当前版本 | 通过 Start Live Dictation / Stop Live Dictation 控制会话 |
-| PTT | ❌ P1 | 按下开始 Session；松开结束并 flush |
-| Toggle | ❌ P2 | 按一次开始，再按一次结束 |
+| 模式 | 状态 | 行为 |
+|------|------|------|
+| **⌥Z Toggle** | ✅ 当前版本 | 任意 App 前台按 **⌥Z** 开始/结束；菜单同步显示 **⌥Z** |
+| 菜单触发 | ✅ 当前版本 | Start Live Dictation / Stop Live Dictation（与 ⌥Z 等效） |
+| PTT | ❌ P1 | 按下开始 Session；松开结束并 flush（候选 `Fn + V`） |
+| 可配置快捷键 | ❌ P1 | Settings 录制 / 持久化 |
 
-**后续快捷键策略（当前版本不启用）**
+**当前实现（⌥Z）**
 
-若后续启用全局快捷键，规格 **推荐候选** 为 **`Fn + V` 按住（PTT）**，但当前版本不暴露该入口。
+| 项 | 说明 |
+|----|------|
+| 默认组合 | **⌥Z**（Option+Z） |
+| 捕获方式 | Session 级 **`CGEventTap`**（`GlobalHotkeyMonitor.swift`） |
+| 事件处理 | 匹配 **⌥Z** 时吞掉 keyDown/keyUp，避免文本框出现 **`Ω`** |
+| 权限 | **输入监控**（监听）+ **辅助功能**（吞键 + 文本注入） |
+| 菜单 | `keyEquivalent` 显示 **⌥Z**；无需打开菜单即可全局 Toggle |
+
+**后续 PTT 策略（当前版本未启用）**
+
+若后续启用 **PTT** 模式，规格 **推荐候选** 为 **`Fn + V` 按住**；当前版本已实现 **⌥Z Toggle**，PTT 仍不暴露。
 
 **Fn 键在 macOS 15 上的约束**
 
@@ -209,7 +219,7 @@ flowchart TD
 
 | 阶段 | 用户看到 | 系统行为 |
 |------|----------|----------|
-| T0 | 点击 **Start Live Dictation**（或后续已配置的快捷键） | Session 开始，无文字 |
+| T0 | 按 **⌥Z** 或点击 **Start Live Dictation** | Session 开始，无文字 |
 | T0+0.8~2s | 首词/首字出现 | 首个 partial 注入 |
 | 说话中 | 文字随语音变长/修正 | 退格 pending + 新 partial |
 | 停顿/松键 | 文字稳定为 final | final 替换 partial |
@@ -272,7 +282,7 @@ flowchart TD
 | 复制策略 | **去掉报告/CLI 冗余** | Daemon 更干净 |
 | 运行环境 | **全部在 macosAsr 内** | venv + 配置自包含 |
 | 进程模型 | **Swift App + Python Daemon** | 各取所长 |
-| MVP 触发 | **菜单 Start/Stop** | 与当前 README 一致，外部用户一眼可试用 |
+| MVP 触发 | **⌥Z Toggle** + 菜单 Start/Stop | 与当前 README 一致；任意 App 前台可 Toggle |
 
 ### 5.2 竞品对比（简化）
 
@@ -325,8 +335,8 @@ gantt
 
 **Must Have**
 
-- 菜单 Start/Stop、live partial、final、备忘录 + IDE  
-- Menu Bar、基础权限引导  
+- **⌥Z Toggle** + 菜单 Start/Stop、live partial、final、备忘录 + IDE  
+- Menu Bar、**输入监控** + 辅助功能引导  
 - macosAsr 内 venv 与 ASR 代码
 
 **Should Have**

@@ -14,7 +14,7 @@ Specs: `docs/SDD/` · Progress: `docs/dev/PROGRESS.md`
 - **Text lands at the cursor**: no copy/paste, no app switching, no transcript cleanup.
 - **Menu-bar workflow**: lightweight Swift shell + Python daemon, built for self-hosted use.
 
-> In the current build, dictation is started and stopped from the menu bar with **Start Live Dictation / Stop Live Dictation**.
+> In the current build, start/stop dictation via **⌥Z** (Option+Z) from any app, or from the menu bar with **Start Live Dictation / Stop Live Dictation** (also shown as **⌥Z**).
 
 ---
 
@@ -32,7 +32,7 @@ Specs: `docs/SDD/` · Progress: `docs/dev/PROGRESS.md`
 
 - Need a one-click Mac App Store install
 - Use an Intel Mac or macOS 14 or older
-- Won’t grant **Accessibility** (required to inject text at the cursor)
+- Won’t grant **Accessibility** (required to inject text at the cursor) or **Input Monitoring** (required for the global **⌥Z** shortcut)
 
 Distribution: **open source on GitHub + self-build** ([LICENSE](LICENSE)).
 
@@ -137,12 +137,20 @@ Menu bar shows **`⏳ ASR`**, then **`🎤 ASR`** after ~30s (model load + 3s no
 3. If it still fails: remove the old entry with **「−」**, run `./scripts/launch_macapp.sh` again, re-enable
 4. **🎤 ASR → Quit (⌘Q)**, then launch again
 
+### 6b. Input Monitoring (once, for global ⌥Z)
+
+1. **System Settings → Privacy & Security → Input Monitoring**
+2. Enable **macosAsrApp** (toggle ON)
+3. **🎤 ASR → Quit (⌘Q)**, then launch again
+
+Without this, the menu still works; **⌥Z** only works globally after authorization.
+
 ### 7. Live dictation
 
 1. Open **Notes** (or another app you’ve verified), place the cursor
-2. Menu bar **🎤 ASR → Start Live Dictation**
+2. Press **⌥Z** to start (or menu bar **🎤 ASR → Start Live Dictation**)
 3. Speak (Chinese or English — set language under **Settings…**)
-4. **Stop Live Dictation** when done
+4. Press **⌥Z** again to stop (or **Stop Live Dictation**)
 
 While dictating, the menu bar shows **`🟢 Dictating…`**.
 
@@ -199,7 +207,7 @@ cd /path/to/macosAsr
 ./scripts/launch_macapp.sh
 ```
 
-Wait for **`🎤 ASR`** → focus target app → **Start Live Dictation** → speak → **Stop**.
+Wait for **`🎤 ASR`** → focus target app → **⌥Z** to start → speak → **⌥Z** to stop.
 
 After code changes:
 
@@ -264,6 +272,8 @@ tail -20 log/daemon.log
 | Accessibility keeps breaking | Confirm build says `Signed with: macosAsr Local`; remove old entry and re-grant |
 | Stuck on ⏳ ASR | Wait ~30s; check `log/daemon.log` for model load errors |
 | Live but no text | Check `trusted=true` in macapp.log; bring Notes to front before Start |
+| **⌥Z** does nothing (menu works) | Grant **Input Monitoring**; Quit and relaunch; check `hotkey_event_tap_started` in macapp.log |
+| **Ω** appears when pressing ⌥Z | Rebuild latest app (tap should consume ⌥Z); confirm Accessibility is ON |
 | codesign hangs | Run `./scripts/setup_codesign_acl.sh` |
 | Quit greyed out | Rebuild (Quit must target the app action) |
 | Daemon still in memory after quit | Quit sends shutdown; if stuck: `pkill -f asr_daemon` |

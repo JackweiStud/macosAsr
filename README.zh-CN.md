@@ -14,7 +14,7 @@
 - **说哪写哪**：识别结果直接写到当前 App 的光标处，不用复制、切换、再粘贴。
 - **菜单栏常驻**：轻量 Swift 壳 + Python Daemon，适合开发者自建，不依赖 App Store。
 
-> 当前版本通过菜单栏 **Start Live Dictation / Stop Live Dictation** 触发，打开就能直接试“边说边出字”。
+> 当前版本可通过全局快捷键 **⌥Z**（Option+Z）在任意 App 中 Start/Stop，也可从菜单栏 **Start Live Dictation / Stop Live Dictation** 触发（菜单中同样显示 **⌥Z**）。
 
 ---
 
@@ -32,7 +32,7 @@
 
 - 需要 Mac App Store 一键安装
 - 使用 Intel Mac 或 macOS 14 及以下
-- 不愿授予 **辅助功能**（将文字注入到光标处）
+- 不愿授予 **辅助功能**（将文字注入到光标处）或 **输入监控**（全局 **⌥Z** 快捷键）
 
 分发方式：**GitHub 开源 + 本机自建**（见 [LICENSE](LICENSE)）。
 
@@ -135,12 +135,20 @@ brew install portaudio
 3. 若无效：点 **「−」** 删除旧条目 → 再 `./scripts/launch_macapp.sh` → 重新 ON
 4. 菜单栏 **🎤 ASR → Quit（⌘Q）** → 再 `./scripts/launch_macapp.sh`
 
+### 6b. 授权输入监控（一次性，全局 ⌥Z 需要）
+
+1. **系统设置 → 隐私与安全性 → 输入监控**
+2. 找到 **macosAsrApp**，开关拨到 **ON**
+3. 菜单栏 **🎤 ASR → Quit（⌘Q）** → 再 `./scripts/launch_macapp.sh`
+
+未授权时菜单仍可用；**⌥Z** 仅在授权并重启后可在任意 App 前台生效。
+
 ### 7. Live 听写
 
 1. 打开 **备忘录**（或你已验证过的 App），光标放空白处
-2. 菜单栏 **🎤 ASR → Start Live Dictation**
+2. 按 **⌥Z** 开始（或菜单栏 **🎤 ASR → Start Live Dictation**）
 3. 对着麦克风说话（中文或英文 — 在 **Settings…** 中选择语言）
-4. **Stop Live Dictation** 结束
+4. 再按 **⌥Z** 结束（或 **Stop Live Dictation**）
 
 听写中菜单栏显示 **`🟢 Dictating…`**。
 
@@ -197,7 +205,7 @@ cd /path/to/macosAsr
 ./scripts/launch_macapp.sh
 ```
 
-等 **`🎤 ASR`** → 光标放好 → **Start Live Dictation** → 说话 → **Stop**。
+等 **`🎤 ASR`** → 光标放好 → **⌥Z** 开始 → 说话 → **⌥Z** 结束。
 
 改代码后 rebuild：
 
@@ -264,6 +272,8 @@ tail -20 log/daemon.log
 | 辅助功能反复失效 | 确认 build 输出 `Signed with: macosAsr Local`；删旧条目重授权 |
 | 一直 ⏳ ASR | 等 ~30s；看 `log/daemon.log` 是否模型加载失败 |
 | Live 无文字 | 确认 `trusted=true`（macapp.log）；备忘录在前台再点 Start |
+| **⌥Z** 无反应（菜单可用） | 开启 **输入监控**；Quit 后重启；查看 macapp.log 是否有 `hotkey_event_tap_started` |
+| 按 **⌥Z** 出现 **Ω** | rebuild 最新版（会吞掉 ⌥Z）；确认辅助功能已 ON |
 | codesign 卡住 | 运行 `./scripts/setup_codesign_acl.sh` |
 | Quit 灰色无法退出 | 已修复：Quit 需指向 App 自身 action；请 rebuild 后重试 |
 | 退出后 daemon 仍占内存 | 正常：Quit 会发 shutdown；若异常残留可 `pkill -f asr_daemon` |
