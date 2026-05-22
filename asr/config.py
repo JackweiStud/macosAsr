@@ -15,7 +15,7 @@ class AsrConfig:
     device: int | None = None
 
     input_block_seconds: float = 0.02
-    partial_interval_seconds: float = 1.0   # 折中：live 感与推理开销；可用 MACOSASR_PARTIAL_INTERVAL 覆盖
+    partial_interval_seconds: float = 0.5   # live 感与推理开销折中；可用 MACOSASR_PARTIAL_INTERVAL 覆盖
     partial_min_audio_seconds: float = 0.60
 
     vad_rms_threshold: float = 0.0

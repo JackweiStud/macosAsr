@@ -6,6 +6,9 @@ export MACOSASR_ROOT="$ROOT"
 cd "$ROOT"
 
 SWIFT_SOURCES=(
+  MacApp/macosAsrApp/AppConfig.swift
+  MacApp/macosAsrApp/ConfigManager.swift
+  MacApp/macosAsrApp/SettingsWindowController.swift
   MacApp/macosAsrApp/AppLogger.swift
   MacApp/macosAsrApp/ProjectPaths.swift
   MacApp/macosAsrApp/TextInjector.swift

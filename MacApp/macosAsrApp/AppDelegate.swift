@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
 
-        let statusItemEntry = NSMenuItem(title: "状态：初始化…", action: nil, keyEquivalent: "")
+        let statusItemEntry = NSMenuItem(title: "Status: Initializing…", action: nil, keyEquivalent: "")
         statusItemEntry.isEnabled = false
         menu.addItem(statusItemEntry)
         statusMenuItem = statusItemEntry
@@ -71,6 +71,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startStopMenuItem = startStop
 
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(
+            NSMenuItem(
+                title: "Settings…",
+                action: #selector(openSettings),
+                keyEquivalent: ","
+            )
+        )
         menu.addItem(
             NSMenuItem(
                 title: "Open Accessibility Settings…",
@@ -111,28 +118,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .idle:
             button.title = "⏳ ASR"
-            statusMenuItem?.title = "状态：未启动"
+            statusMenuItem?.title = "Status: Not started"
             startStopMenuItem?.title = "Start Live Dictation"
             startStopMenuItem?.isEnabled = false
         case .loading:
             button.title = "⏳ ASR"
-            statusMenuItem?.title = "状态：加载模型中…"
-            startStopMenuItem?.title = "Start Live Dictation（加载中…）"
+            statusMenuItem?.title = "Status: Loading model…"
+            startStopMenuItem?.title = "Start Live Dictation (loading…)"
             startStopMenuItem?.isEnabled = false
         case .ready:
             button.title = "🎤 ASR"
-            statusMenuItem?.title = "状态：就绪"
+            statusMenuItem?.title = "Status: Ready"
             startStopMenuItem?.title = "Start Live Dictation"
             startStopMenuItem?.isEnabled = true
         case .listening:
             // 绿点用 emoji；文字交给系统着色（深色菜单栏自动变白）
-            button.title = "🟢 状态：听写中…"
-            statusMenuItem?.title = "状态：听写中…"
+            button.title = "🟢 Dictating…"
+            statusMenuItem?.title = "Status: Dictating…"
             startStopMenuItem?.title = "Stop Live Dictation"
             startStopMenuItem?.isEnabled = true
         case let .error(msg):
             button.title = "⚠️ ASR"
-            statusMenuItem?.title = "状态：错误（点击查看）"
+            statusMenuItem?.title = "Status: Error"
             startStopMenuItem?.title = "Start Live Dictation"
             startStopMenuItem?.isEnabled = false
             AppLogger.log("daemon_error_state \(msg)", level: "ERROR")
@@ -150,7 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .ready:
             preDictationApp = NSWorkspace.shared.frontmostApplication
             liveDictation.start { [weak self] errorMsg in
-                self?.showError("无法启动听写", text: errorMsg)
+                self?.showError("Could Not Start Dictation", text: errorMsg)
             }
             // 把焦点还给目标 App，让 CGEvent 注入对（macOS 14+ API）
             preDictationApp?.activate()
@@ -164,21 +171,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if injector.isAccessibilityTrusted { return true }
 
         let alert = NSAlert()
-        alert.messageText = "需要辅助功能权限"
+        alert.messageText = "Accessibility Permission Required"
         alert.informativeText = """
-        请按顺序操作（开关必须是蓝色 ON）：
+        Follow these steps (the toggle must be ON / blue):
 
-        1. 点「打开系统设置」
-        2. 找到 macosAsrApp，把开关拨到 ON
-        3. 若已 ON 仍失败：删掉 macosAsrApp 条目，重启 App，重新授权
-        4. 菜单栏 ASR → Quit（⌘Q），再启动 App
+        1. Click "Open System Settings"
+        2. Find macosAsrApp and turn the switch ON
+        3. If ON still fails: remove macosAsrApp from the list, relaunch the app, and grant access again
+        4. Menu bar ASR → Quit (⌘Q), then launch the app again
         """
-        alert.addButton(withTitle: "打开系统设置")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn {
             openAccessibilitySettings()
         }
         return false
+    }
+
+    @objc private func openSettings() {
+        SettingsWindowController.shared.showWindow()
     }
 
     @objc private func openAccessibilitySettings() {

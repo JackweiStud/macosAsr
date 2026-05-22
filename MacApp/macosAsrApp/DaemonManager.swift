@@ -60,7 +60,8 @@ final class DaemonManager {
     }
 
     /// 当 daemon 已 ready 时直接发 session_start；否则尝试 warmUp 后再开
-    func startSession(language: String = "Chinese", completion: @escaping (Result<Void, Error>) -> Void) {
+    func startSession(completion: @escaping (Result<Void, Error>) -> Void) {
+        let language = ConfigManager.shared.language
         switch state {
         case .ready:
             client.send(cmd: "session_start", extra: ["language": language])
@@ -185,6 +186,9 @@ final class DaemonManager {
         task.currentDirectoryURL = ProjectPaths.repoRoot
         var env = ProcessInfo.processInfo.environment
         env["PYTHONPATH"] = ProjectPaths.repoRoot.path
+        if env["MACOSASR_PARTIAL_INTERVAL"] == nil {
+            env["MACOSASR_PARTIAL_INTERVAL"] = "0.5"
+        }
         task.environment = env
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice

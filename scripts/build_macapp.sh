@@ -16,6 +16,9 @@ swiftc -Onone \
   -framework ApplicationServices \
   -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$PLIST" \
   "$SRC/main.swift" \
+  "$SRC/AppConfig.swift" \
+  "$SRC/ConfigManager.swift" \
+  "$SRC/SettingsWindowController.swift" \
   "$SRC/AppLogger.swift" \
   "$SRC/ProjectPaths.swift" \
   "$SRC/TextInjector.swift" \

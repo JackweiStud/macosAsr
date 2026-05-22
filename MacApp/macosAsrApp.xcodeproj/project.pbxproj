@@ -15,6 +15,9 @@
 		B10000000000000000000007 /* DaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000A /* DaemonClient.swift */; };
 		B10000000000000000000008 /* DaemonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000B /* DaemonManager.swift */; };
 		B10000000000000000000009 /* LiveDictationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000C /* LiveDictationController.swift */; };
+		B1000000000000000000000A /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000D /* AppConfig.swift */; };
+		B1000000000000000000000B /* ConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000E /* ConfigManager.swift */; };
+		B1000000000000000000000C /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000F /* SettingsWindowController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +29,9 @@
 		B2000000000000000000000A /* DaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonClient.swift; sourceTree = "<group>"; };
 		B2000000000000000000000B /* DaemonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonManager.swift; sourceTree = "<group>"; };
 		B2000000000000000000000C /* LiveDictationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDictationController.swift; sourceTree = "<group>"; };
+		B2000000000000000000000D /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		B2000000000000000000000E /* ConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigManager.swift; sourceTree = "<group>"; };
+		B2000000000000000000000F /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		B20000000000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B20000000000000000000007 /* macosAsrApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = macosAsrApp.entitlements; sourceTree = "<group>"; };
 		B20000000000000000000008 /* macosAsrApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = macosAsrApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -61,6 +67,9 @@
 				B2000000000000000000000A /* DaemonClient.swift */,
 				B2000000000000000000000B /* DaemonManager.swift */,
 				B2000000000000000000000C /* LiveDictationController.swift */,
+				B2000000000000000000000D /* AppConfig.swift */,
+				B2000000000000000000000E /* ConfigManager.swift */,
+				B2000000000000000000000F /* SettingsWindowController.swift */,
 				B20000000000000000000006 /* Info.plist */,
 				B20000000000000000000007 /* macosAsrApp.entitlements */,
 			);
@@ -136,6 +145,9 @@
 				B10000000000000000000007 /* DaemonClient.swift in Sources */,
 				B10000000000000000000008 /* DaemonManager.swift in Sources */,
 				B10000000000000000000009 /* LiveDictationController.swift in Sources */,
+				B1000000000000000000000A /* AppConfig.swift in Sources */,
+				B1000000000000000000000B /* ConfigManager.swift in Sources */,
+				B1000000000000000000000C /* SettingsWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
