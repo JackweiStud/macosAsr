@@ -2,21 +2,31 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Local menu-bar dictation for macOS: **stream text to the cursor** in any app. Audio stays on your machine (Qwen3-ASR + MLX).
+**Local menu-bar dictation for macOS**: stream text to the cursor in any app. Audio stays on your machine (Qwen3-ASR + MLX).
 
 Specs: `docs/SDD/` · Progress: `docs/dev/PROGRESS.md`
 
 ---
 
+## Core benefits
+
+- **Local-first inference**: Qwen3-ASR + MLX keep audio on your machine.
+- **Text lands at the cursor**: no copy/paste, no app switching, no transcript cleanup.
+- **Menu-bar workflow**: lightweight Swift shell + Python daemon, built for self-hosted use.
+
+> In the current build, dictation is started and stopped from the menu bar with **Start Live Dictation / Stop Live Dictation**.
+
+---
+
 ## Who is this for?
 
-**macosAsr is for developers and power users** who clone, build, and run on their own Mac — not a “download and go” App Store app.
+**For developers and power users** who clone, build, and run on their own Mac — not a “download and go” App Store app.
 
 **Good fit if you:**
 
-- Run **macOS 15+ on Apple Silicon** and want **on-device** dictation
+- Run **macOS 15+ on Apple Silicon**
+- Want **on-device** dictation with audio that never leaves your Mac
 - Are fine with `./scripts/setup_env.sh` + `./scripts/build_macapp.sh`
-- Mostly experiment in Notes, text editors, and similar apps
 
 **Not a good fit if you:**
 
@@ -25,6 +35,14 @@ Specs: `docs/SDD/` · Progress: `docs/dev/PROGRESS.md`
 - Won’t grant **Accessibility** (required to inject text at the cursor)
 
 Distribution: **open source on GitHub + self-build** ([LICENSE](LICENSE)).
+
+---
+
+## Why not another dictation tool?
+
+- **Not cloud dictation**: your audio stays local, which is better for privacy and offline use.
+- **Not a record-then-paste workflow**: text is injected directly into the active app instead of leaving you with a transcript to move around.
+- **Not a black-box consumer app**: you can build it, inspect logs, switch language and model settings, and control the behavior yourself.
 
 ---
 
@@ -39,7 +57,7 @@ Distribution: **open source on GitHub + self-build** ([LICENSE](LICENSE)).
 | **numpy**, **sounddevice** | Audio / numerics | Upstream licenses (BSD / MIT) |
 | **PortAudio** (optional system dep) | Mic backend | [portaudio.com](http://www.portaudio.com/) |
 
-Model weights are **not** shipped in this repo. First launch downloads ~**3 GB** over the network.
+Model weights are **not** shipped in this repo. First launch downloads ~**3 GB** over the network. Default model: **`mlx-community/Qwen3-ASR-0.6B-8bit`**.
 
 ---
 

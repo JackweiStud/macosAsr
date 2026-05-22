@@ -2,21 +2,31 @@
 
 [English](README.md) | **简体中文**
 
-macOS 菜单栏本地语音听写：在任意 App 光标处 **边说边出字**，数据不出本机（Qwen3-ASR + MLX）。
+**macOS 菜单栏本地语音听写**：在任意 App 光标处 **边说边出字**，音频不出本机（Qwen3-ASR + MLX）。
 
 规格文档：`docs/SDD/` · 开发进度：`docs/dev/PROGRESS.md`
 
 ---
 
+## 核心卖点
+
+- **本地推理**：Qwen3-ASR + MLX，音频不出本机。
+- **说哪写哪**：识别结果直接写到当前 App 的光标处，不用复制、切换、再粘贴。
+- **菜单栏常驻**：轻量 Swift 壳 + Python Daemon，适合开发者自建，不依赖 App Store。
+
+> 当前版本通过菜单栏 **Start Live Dictation / Stop Live Dictation** 触发，打开就能直接试“边说边出字”。
+
+---
+
 ## 适用对象
 
-**macosAsr 面向会在 Mac 上 clone、构建、运行的开发者/高级用户**，不是「下载即用」的 App Store 产品。
+**面向会在 Mac 上 clone、构建、运行的开发者/高级用户**，不是「下载即用」的 App Store 产品。
 
 **适合你如果：**
 
-- 使用 **macOS 15+ / Apple Silicon**，希望 **本地** 听写（音频不出本机）
-- 接受 `./scripts/setup_env.sh` + `./scripts/build_macapp.sh` 自建流程
-- 主要在备忘录、文本编辑器等场景做 live 听写实验
+- 使用 **macOS 15+ / Apple Silicon**
+- 希望 **本地** 听写，音频不离开机器
+- 能接受 `./scripts/setup_env.sh` + `./scripts/build_macapp.sh` 自建流程
 
 **不适合如果你：**
 
@@ -25,6 +35,14 @@ macOS 菜单栏本地语音听写：在任意 App 光标处 **边说边出字**�
 - 不愿授予 **辅助功能**（将文字注入到光标处）
 
 分发方式：**GitHub 开源 + 本机自建**（见 [LICENSE](LICENSE)）。
+
+---
+
+## 为什么不是别的方案
+
+- **不是云端听写**：音频不上传第三方，隐私和离线可用性更稳。
+- **不是录完再粘贴**：文字直接落到你正在编辑的 App，少一次复制/切换/粘贴。
+- **不是黑箱产品**：你能自己构建、看日志、调语言和模型，而不是被固定流程绑死。
 
 ---
 
@@ -39,7 +57,7 @@ macOS 菜单栏本地语音听写：在任意 App 光标处 **边说边出字**�
 | **numpy**, **sounddevice** | 音频与数值 | 各自上游许可（BSD / MIT） |
 | **PortAudio**（系统可选依赖） | 麦克风后端 | 见 [portaudio.com](http://www.portaudio.com/) |
 
-模型权重 **不会** 随仓库分发；首次启动需联网下载约 **3 GB**。
+模型权重 **不会** 随仓库分发；首次启动需联网下载约 **3 GB**。默认模型：**`mlx-community/Qwen3-ASR-0.6B-8bit`**。
 
 ---
 
