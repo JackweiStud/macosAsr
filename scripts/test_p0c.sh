@@ -10,7 +10,6 @@ SWIFT_SOURCES=(
   MacApp/macosAsrApp/ProjectPaths.swift
   MacApp/macosAsrApp/TextInjector.swift
   MacApp/macosAsrApp/InjectionStateMachine.swift
-  MacApp/macosAsrApp/MockInjectionTest.swift
   MacApp/macosAsrApp/DaemonClient.swift
   MacApp/macosAsrApp/DaemonManager.swift
   MacApp/macosAsrApp/LiveDictationController.swift

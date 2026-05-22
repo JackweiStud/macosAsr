@@ -1,6 +1,6 @@
 # MacApp — 菜单栏听写
 
-Menu Bar App：**Live 听写**（接 `asr_daemon`）+ **Mock 注入测试**（开发验收）。
+Menu Bar App：**Live 听写**（接 `asr_daemon`）。
 
 ## 构建与启动
 
@@ -8,8 +8,17 @@ Menu Bar App：**Live 听写**（接 `asr_daemon`）+ **Mock 注入测试**（�
 cd /path/to/macosAsr
 ./scripts/create_codesign_cert.sh   # 首次
 ./scripts/build_macapp.sh
-./scripts/launch_macapp.sh
+./scripts/launch_macapp.sh          # 命令行启动
 ```
+
+**其他启动方式：**
+
+```bash
+./scripts/install_desktop_shortcut.sh   # 桌面 macosAsr.app
+./scripts/install_login_item.sh install # 登录自启
+```
+
+退出：**菜单栏 🎤 ASR → Quit（⌘Q）** — 会关闭 App 与 asr_daemon。
 
 ## 菜单栏状态
 
@@ -17,7 +26,7 @@ cd /path/to/macosAsr
 |------|------|
 | `⏳ ASR` | Daemon 加载模型 / 校准中 |
 | `🎤 ASR` | 就绪，可 Start Live Dictation |
-| `状态：听写中…` | 听写中 |
+| `🟢 状态：听写中…` | 听写中 |
 | `⚠️ ASR` | 错误（见 `log/macapp.log`） |
 
 ## Live 听写
@@ -28,9 +37,12 @@ cd /path/to/macosAsr
 
 App 启动时会自动 `warmUp` daemon，**无需**手动 `python -m asr_daemon`。
 
-## Mock 测试（P0c）
+## 调优
 
-菜单 **Run Mock Injection Test…** — 期望备忘录光标处：`你好，世界。`
+| 项 | 默认 | 覆盖 |
+|----|------|------|
+| partial 间隔 | 1.0s | 环境变量 `MACOSASR_PARTIAL_INTERVAL` |
+| 注入按键延迟 | 0.4ms/键 | `TextInjector.swift` |
 
 ## 日志
 

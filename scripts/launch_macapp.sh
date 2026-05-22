@@ -12,8 +12,17 @@ fi
 pkill -x macosAsrApp 2>/dev/null || true
 sleep 0.5
 
+# Quit 后可能残留 socket 文件但 daemon 已不在 → 清掉避免卡在 loading
+SOCK="$ROOT/run/macosasr.sock"
+if [[ -e "$SOCK" ]] && ! pgrep -f "python.*asr_daemon" >/dev/null 2>&1; then
+  rm -f "$SOCK"
+  echo "已清理残留 socket（daemon 未运行）"
+fi
+
 open --env MACOSASR_ROOT="$ROOT" "$APP"
 echo "已启动 macosAsrApp"
+echo "首次冷启动约 30s（⏳ → 🎤）；若一直 ⏳ 请看 log/daemon.log"
+echo "退出：菜单栏 🎤 ASR → Quit（⌘Q），会同时关闭 asr_daemon"
 echo "请看菜单栏右侧是否出现 「🎤 ASR」"
 echo "若仍看不到：系统设置 → 控制中心 → 菜单栏自动显示 → 关闭「自动隐藏」或缩短其他图标"
 echo "日志: tail -f $ROOT/log/macapp.log"

@@ -6,44 +6,39 @@
 
 ## 当前交接
 
-**日期**：2026-05-22  
-**From**：Worker（LARF 周期 #2）  
-**To**：下一 Worker（P0b 人声复测 → P0c）
+**日期**：2026-05-22（归档）  
+**From**：Worker（P0d + polish）  
+**To**：下一 Worker（P1：PTT / 设置页）
 
 ### Context
 
 - 仓库：`/Users/jackwl/Code/macosAsr`
-- SDD：**v0.1.2**；默认热键 **Fn+V**
-- Python：`asr/` + `asr_daemon/`；IPC：`run/macosasr.sock`，JSON-lines `protocol:1`
-- 日志：`log/daemon.log`（`python -m asr_daemon` 内建 `setup_tee`；**不要**再 shell 重定向到同一文件）
+- SDD：**v0.1.2**；当前 MVP：**菜单 Live 听写**（PTT 暂缓）
+- 启动：`./scripts/launch_macapp.sh` / 桌面 `macosAsr.app` / 登录项
+- Quit（⌘Q）会 shutdown daemon
 
 ### Done
 
-- [x] LARF 周期 #1：`--help`、`--skip-model` ping
-- [x] `./scripts/setup_env.sh` 已执行；`.venv` + `mlx_audio` 可用
-- [x] 完整 daemon：`cli_client --ping` → `model_loaded: true`, `calibrated: true`
-- [x] LARF 周期 #2 Reflect 写入 `PROGRESS.md`
-- [x] `cli_client --session-test` 显式 T-02/T-03 与无声 hint
-
-### Blocked
-
-- [ ] P0b 硬门禁：`--session-test` T-02/T-03（本环境安静未对人说话 → FAIL；需本地人声复测）
+- [x] P0b–P0d 全部 PASS
+- [x] 稳定签名、warmUp、四态菜单栏
+- [x] Quit 修复、退出关 daemon
+- [x] partial 1.0s、注入 sleep 0.4ms
+- [x] README / PROGRESS 更新
+- [x] 移除菜单 Mock 注入测试（P0c 里程碑仍保留）
 
 ### Next
 
-1. 单实例 daemon：`pkill -f "python.*asr_daemon"` 后 `python -m asr_daemon`，等校准完成
-2. 对着麦克风说话跑 `cli_client --session-test --duration 5` → T-02/T-03 **PASS** 后开 **P0c**
-3. P0c：Swift TextInjector mock（退格重插）
+1. Fn+V PTT（FR-001）
+2. 设置页 + config.json
+3. Onboarding 三步权限
 
 ### Commands
 
 ```bash
 cd /Users/jackwl/Code/macosAsr
-source .venv/bin/activate
-export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
-python -m asr_daemon &
-python -m asr_daemon.cli_client --ping
-python -m asr_daemon.cli_client --session-test --duration 5
+./scripts/build_macapp.sh
+./scripts/launch_macapp.sh
+./scripts/install_desktop_shortcut.sh
 ```
 
 ---

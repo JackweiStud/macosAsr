@@ -10,7 +10,6 @@
 		B10000000000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* AppDelegate.swift */; };
 		B10000000000000000000002 /* TextInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* TextInjector.swift */; };
 		B10000000000000000000003 /* InjectionStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* InjectionStateMachine.swift */; };
-		B10000000000000000000004 /* MockInjectionTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000004 /* MockInjectionTest.swift */; };
 		B10000000000000000000005 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* AppLogger.swift */; };
 		B10000000000000000000006 /* ProjectPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000009 /* ProjectPaths.swift */; };
 		B10000000000000000000007 /* DaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000A /* DaemonClient.swift */; };
@@ -22,7 +21,6 @@
 		B20000000000000000000001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* TextInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextInjector.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* InjectionStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectionStateMachine.swift; sourceTree = "<group>"; };
-		B20000000000000000000004 /* MockInjectionTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockInjectionTest.swift; sourceTree = "<group>"; };
 		B20000000000000000000005 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		B20000000000000000000009 /* ProjectPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPaths.swift; sourceTree = "<group>"; };
 		B2000000000000000000000A /* DaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonClient.swift; sourceTree = "<group>"; };
@@ -58,7 +56,6 @@
 				B20000000000000000000001 /* AppDelegate.swift */,
 				B20000000000000000000002 /* TextInjector.swift */,
 				B20000000000000000000003 /* InjectionStateMachine.swift */,
-				B20000000000000000000004 /* MockInjectionTest.swift */,
 				B20000000000000000000005 /* AppLogger.swift */,
 				B20000000000000000000009 /* ProjectPaths.swift */,
 				B2000000000000000000000A /* DaemonClient.swift */,
@@ -134,7 +131,6 @@
 				B10000000000000000000001 /* AppDelegate.swift in Sources */,
 				B10000000000000000000002 /* TextInjector.swift in Sources */,
 				B10000000000000000000003 /* InjectionStateMachine.swift in Sources */,
-				B10000000000000000000004 /* MockInjectionTest.swift in Sources */,
 				B10000000000000000000005 /* AppLogger.swift in Sources */,
 				B10000000000000000000006 /* ProjectPaths.swift in Sources */,
 				B10000000000000000000007 /* DaemonClient.swift in Sources */,

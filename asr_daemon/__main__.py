@@ -77,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
         config.model = args.model
     if args.language:
         config.language = args.language
+    partial_env = os.environ.get("MACOSASR_PARTIAL_INTERVAL")
+    if partial_env:
+        config.partial_interval_seconds = float(partial_env)
 
     server = DaemonServer(args.socket, config, skip_model=args.skip_model)
 

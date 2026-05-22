@@ -5,7 +5,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let injector = TextInjector()
     private lazy var stateMachine = InjectionStateMachine(injector: injector)
     private lazy var liveDictation = LiveDictationController(stateMachine: stateMachine)
-    private var isRunningMock = false
 
     private var startStopMenuItem: NSMenuItem?
     private var statusMenuItem: NSMenuItem?
@@ -36,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self)
+        DaemonManager.shared.shutdown()
     }
 
     @objc private func appDidBecomeActive() {
@@ -73,27 +73,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(
             NSMenuItem(
-                title: "Run Mock Injection Test…",
-                action: #selector(runMockTest),
-                keyEquivalent: ""
-            )
-        )
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(
-            NSMenuItem(
                 title: "Open Accessibility Settings…",
                 action: #selector(openAccessibilitySettings),
                 keyEquivalent: ""
             )
         )
-        menu.addItem(
-            NSMenuItem(
-                title: "Quit",
-                action: #selector(NSApplication.terminate(_:)),
-                keyEquivalent: "q"
-            )
+        let quitItem = NSMenuItem(
+            title: "Quit",
+            action: #selector(quitApplication),
+            keyEquivalent: "q"
         )
-        for item in menu.items {
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        for item in menu.items where item.action != nil && item !== quitItem {
             item.target = self
         }
         statusItem?.menu = menu
@@ -167,37 +160,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func runMockTest() {
-        guard !isRunningMock else { return }
-        guard requireAccessibility() else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Mock 注入测试（P0c）"
-        alert.informativeText = """
-        1. 切换到「备忘录」并点击文本区放置光标
-        2. 点「开始」后不要动键盘，约 1.5 秒内会依次写入 partial/final
-
-        期望最终光标处为：你好，世界。
-        """
-        alert.addButton(withTitle: "开始")
-        alert.addButton(withTitle: "取消")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        isRunningMock = true
-        AppLogger.log("user_started_mock_test")
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self else { return }
-            MockInjectionTest.run(stateMachine: self.stateMachine) { _, finalText in
-                self.isRunningMock = false
-                let done = NSAlert()
-                done.messageText = "Mock 测试完成"
-                done.informativeText = "请检查备忘录光标处是否为：\(finalText)"
-                done.runModal()
-            }
-        }
-    }
-
     private func requireAccessibility() -> Bool {
         if injector.isAccessibilityTrusted { return true }
 
@@ -223,6 +185,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    @objc private func quitApplication(_ sender: Any?) {
+        NSApplication.shared.terminate(sender)
     }
 
     private func showError(_ title: String, text: String) {

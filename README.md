@@ -83,7 +83,19 @@ brew install portaudio
 3. 对着麦克风说中文
 4. **Stop Live Dictation** 结束
 
-听写中菜单栏显示 **`状态：听写中…`**。
+听写中菜单栏显示 **`🟢 状态：听写中…`**。
+
+---
+
+## 启动方式（三选一）
+
+| 方式 | 命令 / 操作 | 说明 |
+|------|-------------|------|
+| **命令行（推荐开发）** | `./scripts/launch_macapp.sh` | 自动设置 `MACOSASR_ROOT`，结束旧实例；无 daemon 时清理残留 socket |
+| **桌面一键** | `./scripts/install_desktop_shortcut.sh` → 双击桌面 **macosAsr.app** | 绿色麦克风图标；首次需 build |
+| **登录自启** | `./scripts/install_login_item.sh install` | 用户登录 macOS 后自动启动；移除：`uninstall` |
+
+退出 App（菜单 **Quit ⌘Q**）时会 **同时关闭 asr_daemon**，释放模型内存。
 
 ---
 
@@ -104,6 +116,17 @@ cd /Users/jackwl/Code/macosAsr
 ```
 
 使用 `macosAsr Local` 签名后，**一般不需要**重复授权辅助功能。
+
+### 高级：partial 刷新间隔
+
+默认 **1.0 秒**（`asr/config.py`）。启动 daemon 前可覆盖：
+
+```bash
+export MACOSASR_PARTIAL_INTERVAL=0.8
+./scripts/launch_macapp.sh
+```
+
+数值越小 live 感越强，GPU/注入开销越大。
 
 ---
 
@@ -149,7 +172,8 @@ tail -20 log/daemon.log
 | 一直 ⏳ ASR | 等 ~30s；看 `log/daemon.log` 是否模型加载失败 |
 | Live 无文字 | 确认 `trusted=true`（macapp.log）；备忘录在前台再点 Start |
 | codesign 卡住 | 运行 `./scripts/setup_codesign_acl.sh` |
-| 麦克风无声 | `brew install portaudio`；检查系统麦克风权限 |
+| Quit 灰色无法退出 | 已修复：Quit 需指向 App 自身 action；请 rebuild 后重试 |
+| 退出后 daemon 仍占内存 | 正常：Quit 会发 shutdown；若异常残留可 `pkill -f asr_daemon` |
 
 ---
 

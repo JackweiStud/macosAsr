@@ -29,7 +29,7 @@ final class TextInjector: TextInjecting {
             let up = CGEvent(keyboardEventSource: source, virtualKey: backspaceKeyCode, keyDown: false)
             down?.post(tap: .cghidEventTap)
             up?.post(tap: .cghidEventTap)
-            usleep(1_500)
+            usleep(400)
         }
     }
 
@@ -45,7 +45,7 @@ final class TextInjector: TextInjecting {
             up.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
             down.post(tap: .cghidEventTap)
             up.post(tap: .cghidEventTap)
-            usleep(2_000)
+            usleep(400)
         }
     }
 }

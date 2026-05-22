@@ -91,6 +91,28 @@ final class DaemonManager {
         state = .ready
     }
 
+    /// App 退出时结束 session、通知 daemon shutdown 并断开连接
+    func shutdown() {
+        if state == .listening {
+            stopSession()
+        }
+        if clientConnected {
+            client.send(cmd: "shutdown")
+            Thread.sleep(forTimeInterval: 0.3)
+            client.disconnect()
+            clientConnected = false
+        }
+        if let proc = daemonProcess, proc.isRunning {
+            proc.waitUntilExit()
+            if proc.isRunning {
+                proc.terminate()
+            }
+        }
+        daemonProcess = nil
+        removeStaleSocket()
+        AppLogger.log("daemon_shutdown")
+    }
+
     /// session_stopped 事件回调时由 LiveDictationController 调用
     func notifySessionStoppedFromDaemon() {
         if state == .listening { state = .ready }
@@ -122,12 +144,23 @@ final class DaemonManager {
 
     // MARK: - 内部：spawn + ping 轮询
 
+    private func removeStaleSocket() {
+        let path = ProjectPaths.socketPath.path
+        guard FileManager.default.fileExists(atPath: path) else { return }
+        try? FileManager.default.removeItem(at: ProjectPaths.socketPath)
+        AppLogger.log("removed stale socket", level: "WARN")
+    }
+
     private func ensureDaemonReady(completion: @escaping (Result<Void, Error>) -> Void) {
         let deadline = Date().addingTimeInterval(120)
         if FileManager.default.fileExists(atPath: ProjectPaths.socketPath.path) {
             connectAndPing(deadline: deadline, completion: completion)
             return
         }
+        spawnDaemonAndWait(deadline: deadline, completion: completion)
+    }
+
+    private func spawnDaemonAndWait(deadline: Date, completion: @escaping (Result<Void, Error>) -> Void) {
         launchDaemon { [weak self] launchError in
             if let launchError {
                 completion(.failure(launchError))
@@ -195,9 +228,12 @@ final class DaemonManager {
                 try client.connect(socketPath: ProjectPaths.socketPath)
                 clientConnected = true
             } catch {
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    self?.connectAndPing(deadline: deadline, completion: completion)
-                }
+                // socket 文件在但 daemon 已退出 → 清掉残留并重新 spawn
+                AppLogger.log("daemon_connect_failed will respawn", level: "WARN")
+                removeStaleSocket()
+                client.disconnect()
+                clientConnected = false
+                spawnDaemonAndWait(deadline: deadline, completion: completion)
                 return
             }
         }

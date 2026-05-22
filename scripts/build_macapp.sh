@@ -20,7 +20,6 @@ swiftc -Onone \
   "$SRC/ProjectPaths.swift" \
   "$SRC/TextInjector.swift" \
   "$SRC/InjectionStateMachine.swift" \
-  "$SRC/MockInjectionTest.swift" \
   "$SRC/DaemonClient.swift" \
   "$SRC/DaemonManager.swift" \
   "$SRC/LiveDictationController.swift" \
@@ -29,9 +28,11 @@ swiftc -Onone \
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+"$ROOT/scripts/build_icon.sh"
 cp "$BUILD_DIR/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
 cp "$SRC/Info.plist" "$APP/Contents/Info.plist"
 cp "$SRC/macosAsrApp.entitlements" "$APP/Contents/Resources/macosAsrApp.entitlements"
+cp "$ROOT/MacApp/Assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 PLIST="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $APP_NAME" "$PLIST"
@@ -40,6 +41,8 @@ PLIST="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string macosAsr" "$PLIST" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName macosAsr" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 15.0" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$PLIST" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$PLIST"
 
 chmod +x "$APP/Contents/MacOS/$APP_NAME"
 
