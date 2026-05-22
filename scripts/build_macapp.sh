@@ -26,6 +26,7 @@ swiftc -Onone \
   "$SRC/DaemonClient.swift" \
   "$SRC/DaemonManager.swift" \
   "$SRC/LiveDictationController.swift" \
+  "$SRC/GlobalHotkeyMonitor.swift" \
   "$SRC/AppDelegate.swift" \
   -o "$BUILD_DIR/$APP_NAME"
 

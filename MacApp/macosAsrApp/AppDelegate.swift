@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var startStopMenuItem: NSMenuItem?
     private var statusMenuItem: NSMenuItem?
     private var preDictationApp: NSRunningApplication?
+    private let hotkeyMonitor = GlobalHotkeyMonitor()
+    private var didWarnInputMonitoring = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -16,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !injector.isAccessibilityTrusted {
             injector.registerForAccessibilityPrompt()
         }
+        setupHotkeyMonitor()
 
         NotificationCenter.default.addObserver(
             self,
@@ -34,12 +37,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        hotkeyMonitor.stop()
         NotificationCenter.default.removeObserver(self)
         DaemonManager.shared.shutdown()
     }
 
     @objc private func appDidBecomeActive() {
-        // 不在每次激活时写日志；启动时 logLaunchStatus 已记录 trusted 状态
+        if !hotkeyMonitor.isRunning {
+            if !hotkeyMonitor.isInputMonitoringGranted {
+                _ = hotkeyMonitor.requestInputMonitoringAccess()
+            }
+            hotkeyMonitor.refresh()
+        }
     }
 
     private func logLaunchStatus() {
@@ -48,9 +57,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if case let .success(url) = ProjectPaths.locateRepoRoot() { return url.path }
             return "not found"
         }()
-        AppLogger.log("launch trusted=\(trusted) repo=\(repoPath)")
+        let inputMonitoring = hotkeyMonitor.isInputMonitoringGranted
+        AppLogger.log("launch trusted=\(trusted) inputMonitoring=\(inputMonitoring) repo=\(repoPath)")
         if !trusted {
             AppLogger.log("accessibility not trusted — enable toggle then Quit and relaunch", level: "WARN")
+        }
+        if !inputMonitoring {
+            AppLogger.log("input monitoring not granted — global ⌥Z unavailable until enabled", level: "WARN")
+        }
+    }
+
+    private func setupHotkeyMonitor() {
+        hotkeyMonitor.onTrigger = { [weak self] in
+            self?.toggleLiveDictation()
+        }
+        if !hotkeyMonitor.isInputMonitoringGranted {
+            _ = hotkeyMonitor.requestInputMonitoringAccess()
+        }
+        hotkeyMonitor.start()
+        if !hotkeyMonitor.isRunning {
+            promptInputMonitoringIfNeeded()
         }
     }
 
@@ -69,8 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let startStop = NSMenuItem(
             title: "Start Live Dictation",
             action: #selector(toggleLiveDictation),
-            keyEquivalent: ""
+            keyEquivalent: "z"
         )
+        startStop.keyEquivalentModifierMask = [.option]
         menu.addItem(startStop)
         startStopMenuItem = startStop
 
@@ -198,6 +225,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openAccessibilitySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func promptInputMonitoringIfNeeded() {
+        guard !hotkeyMonitor.isInputMonitoringGranted else { return }
+        guard !didWarnInputMonitoring else { return }
+        didWarnInputMonitoring = true
+
+        let alert = NSAlert()
+        alert.messageText = "Input Monitoring Permission Required"
+        alert.informativeText = """
+        Global shortcut ⌥Z needs Input Monitoring so macosAsr can Start/Stop while another app is focused — without opening the menu bar first.
+
+        1. Click "Open System Settings"
+        2. Find macosAsrApp under Input Monitoring and turn the switch ON
+        3. Menu bar ASR → Quit (⌘Q), then launch the app again
+        """
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            openInputMonitoringSettings()
+        }
+    }
+
+    private func openInputMonitoringSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
             NSWorkspace.shared.open(url)
         }
     }
