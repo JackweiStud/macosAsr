@@ -1,7 +1,8 @@
 # macosAsr — SDD 文档索引
 
 > **开发方式**：Specification-Driven Development（规格驱动开发）  
-> **原则**：先定规格、再实现；本文档集为唯一需求与设计基线，代码不得偏离未评审的规格。
+> **原则**：先定规格、再实现。  
+> **注意**：SDD 为设计基线；**实现细节以根目录 README 与代码为准**（如 partial 0.5s、无 xcodeproj、设置页语言等）。
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
@@ -17,7 +18,7 @@
 |------|------|
 | [LARF.md](../dev/LARF.md) | Learn → Act → Reflect → Fix 循环与 SDD 门禁 |
 | [PROGRESS.md](../dev/PROGRESS.md) | 活进度日志与测试结论 |
-| [AGENT_HANDOFF.md](../dev/AGENT_HANDOFF.md) | Agent 交接模板 |
+| [archive/AGENT_HANDOFF.md](../dev/archive/AGENT_HANDOFF.md) | Agent 交接（已归档） |
 | [LOGGING.md](../dev/LOGGING.md) | `log/` 目录与 tee 约定 |
 
 ## 修订记录

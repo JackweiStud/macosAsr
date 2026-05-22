@@ -50,7 +50,8 @@ Model weights are **not** shipped in this repo. First launch downloads ~**3 GB**
 | OS | **macOS 15.0+** (Apple Silicon) |
 | Python | **3.11+** (3.12 recommended; 3.14 tested locally) |
 | RAM | 16 GB recommended (0.6B model) |
-| Tools | Xcode **Command Line Tools** (`xcode-select --install`) |
+| Tools | Xcode **Command Line Tools** (`xcode-select --install`) — **not** full Xcode.app |
+| Build | **`scripts/build_macapp.sh`** (`swiftc`) — no `.xcodeproj` in repo |
 | Optional | [Homebrew](https://brew.sh) (for PortAudio) |
 
 ---
@@ -98,6 +99,8 @@ Enter your **Mac login password** when prompted to set the keychain ACL (one tim
 ```
 
 Expected: `Signed with: macosAsr Local`
+
+> **Command Line Tools only** — you do not need Xcode.app; this repo has no `.xcodeproj`.
 
 ### 5. Launch
 
@@ -224,6 +227,8 @@ tail -20 log/daemon.log
 ./scripts/ci_smoke.sh      # Local CI smoke (Python import)
 ./scripts/build_macapp.sh
 ```
+
+Official MacApp build: **swiftc via scripts only** (no Xcode project file).
 
 - MacApp details: [`MacApp/README.md`](MacApp/README.md)
 - Workflow: [`docs/dev/LARF.md`](docs/dev/LARF.md)

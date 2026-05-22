@@ -50,7 +50,8 @@ macOS 菜单栏本地语音听写：在任意 App 光标处 **边说边出字**�
 | 系统 | **macOS 15.0+**（Apple Silicon） |
 | Python | **3.11+**（推荐 3.12；本地曾在 3.14 验证） |
 | 硬件 | 建议 16GB 内存（0.6B 模型） |
-| 工具 | Xcode **Command Line Tools**（`xcode-select --install`） |
+| 工具 | Xcode **Command Line Tools**（`xcode-select --install`）— **不需要**完整 Xcode.app |
+| 构建 | **`scripts/build_macapp.sh`**（`swiftc`）— 仓库内无 `.xcodeproj` |
 | 可选 | [Homebrew](https://brew.sh)（安装 PortAudio） |
 
 ---
@@ -96,6 +97,8 @@ brew install portaudio
 ```
 
 期望输出：`Signed with: macosAsr Local`
+
+> **仅需 Command Line Tools** — 不必安装 Xcode.app；仓库内也没有 `.xcodeproj`。
 
 ### 5. 启动 App
 
@@ -224,6 +227,8 @@ tail -20 log/daemon.log
 ./scripts/ci_smoke.sh           # 本地 CI 冒烟（含 Python import）
 ./scripts/build_macapp.sh
 ```
+
+MacApp 官方构建方式：**仅通过脚本 + swiftc**（无 Xcode 工程文件）。
 
 - MacApp 细节：[`MacApp/README.md`](MacApp/README.md)
 - 开发流程：[`docs/dev/LARF.md`](docs/dev/LARF.md)

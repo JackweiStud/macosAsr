@@ -32,14 +32,6 @@ echo "PASS compile"
 echo "== P0c-2: state machine + log self-test =="
 /usr/bin/swift MacApp/Tools/p0c_selftest.swift
 
-echo "== P0c-3: xcodebuild (optional, needs full Xcode.app) =="
-if /usr/bin/xcodebuild -version >/dev/null 2>&1; then
-  (cd MacApp && xcodebuild -scheme macosAsrApp -configuration Debug build)
-  echo "PASS xcodebuild"
-else
-  echo "SKIP xcodebuild — install Xcode.app from App Store for IDE run"
-fi
-
 echo ""
 echo "All automated P0c checks passed."
 echo "Build .app: ./scripts/build_macapp.sh"

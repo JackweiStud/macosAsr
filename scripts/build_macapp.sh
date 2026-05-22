@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build macosAsrApp.app without full Xcode.app (swiftc + bundle layout).
+# Build macosAsrApp.app (swiftc + bundle layout; Command Line Tools only).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export MACOSASR_ROOT="$ROOT"

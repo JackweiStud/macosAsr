@@ -26,7 +26,7 @@ flowchart LR
 ### Learn
 
 - 阅读 [`docs/SDD/`](../SDD/README.md) 相关章节（需求、TDD、门禁）
-- 查看 `PROGRESS.md` 上一周期与 `AGENT_HANDOFF.md`
+- 查看 `PROGRESS.md` 上一周期；Agent 归档见 `docs/dev/archive/AGENT_HANDOFF.md`
 - 确认本阶段 **测试门禁**（见下表）
 
 ### Act
@@ -62,7 +62,7 @@ flowchart LR
 每个 Worker 周期结束时更新：
 
 1. [`PROGRESS.md`](./PROGRESS.md) — 历史表一行 + Current phase
-2. 可选 [`AGENT_HANDOFF.md`](./AGENT_HANDOFF.md) — 交给下一 Agent
+2. 可选 [`archive/AGENT_HANDOFF.md`](./archive/AGENT_HANDOFF.md) — 交给下一 Agent（模板在归档内）
 3. 若改日志约定 — [`LOGGING.md`](./LOGGING.md)
 
 **Learn/Act/Reflect/Fix 列示例**（中文一行摘要即可）：
@@ -77,6 +77,6 @@ flowchart LR
 ## 相关文档
 
 - [PROGRESS.md](./PROGRESS.md) — 活进度日志
-- [AGENT_HANDOFF.md](./AGENT_HANDOFF.md) — Agent 交接模板
+- [archive/AGENT_HANDOFF.md](./archive/AGENT_HANDOFF.md) — Agent 交接（已归档）
 - [LOGGING.md](./LOGGING.md) — `log/` 目录约定
 - [SDD 索引](../SDD/README.md)

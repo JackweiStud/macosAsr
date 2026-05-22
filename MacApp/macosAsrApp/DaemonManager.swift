@@ -174,7 +174,7 @@ final class DaemonManager {
     private func launchDaemon(completion: @escaping (Error?) -> Void) {
         guard case let .success(root) = ProjectPaths.locateRepoRoot() else {
             completion(NSError(domain: "DaemonManager", code: 9, userInfo: [
-                NSLocalizedDescriptionKey: ProjectPaths.LocateError.repositoryNotFound.localizedDescription ?? "Repository not found",
+                NSLocalizedDescriptionKey: ProjectPaths.LocateError.repositoryNotFound.localizedDescription,
             ]))
             return
         }

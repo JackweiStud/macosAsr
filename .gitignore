@@ -10,5 +10,4 @@ run/*
 log/*
 !log/.gitkeep
 
-MacApp/**/xcuserdata/
 MacApp/build/

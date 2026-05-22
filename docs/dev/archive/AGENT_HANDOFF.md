@@ -1,10 +1,11 @@
-# Agent Handoff 模板
+# Agent Handoff（已归档）
 
-> 复制本节到新的 handoff 条目，或覆盖下方「当前交接」块。
+> **归档日期**：2026-05-22（P0d 完成后）  
+> 当前进度见 [PROGRESS.md](../PROGRESS.md)。设置页、v0.1.0、删 xcodeproj 等已在后续完成。
 
 ---
 
-## 当前交接
+## 当前交接（历史快照）
 
 **日期**：2026-05-22（归档）  
 **From**：Worker（P0d + polish）  
@@ -26,16 +27,16 @@
 - [x] README / PROGRESS 更新
 - [x] 移除菜单 Mock 注入测试（P0c 里程碑仍保留）
 
-### Next
+### Next（当时计划；部分已实现）
 
 1. Fn+V PTT（FR-001）
-2. 设置页 + config.json
+2. 设置页 + config.json ✅ 已实现（语言）
 3. Onboarding 三步权限
 
 ### Commands
 
 ```bash
-cd /Users/jackwl/Code/macosAsr
+cd /path/to/macosAsr
 ./scripts/build_macapp.sh
 ./scripts/launch_macapp.sh
 ./scripts/install_desktop_shortcut.sh

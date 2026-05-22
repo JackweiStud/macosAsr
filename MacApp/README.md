@@ -1,54 +1,44 @@
-# MacApp — 菜单栏听写
+# MacApp
 
-Menu Bar App：**Live 听写**（接 `asr_daemon`）。
+Menu bar app (Swift) — live dictation UI, text injection, and `asr_daemon` lifecycle.
 
-## 构建与启动
+**Build:** Command Line Tools + `swiftc` only (no Xcode project).
 
 ```bash
 cd /path/to/macosAsr
-./scripts/create_codesign_cert.sh   # 首次
 ./scripts/build_macapp.sh
-./scripts/launch_macapp.sh          # 命令行启动
+./scripts/launch_macapp.sh
 ```
 
-**其他启动方式：**
+Full setup: [README.md](../README.md) (English) · [README.zh-CN.md](../README.zh-CN.md)
 
-```bash
-./scripts/install_desktop_shortcut.sh   # 桌面 macosAsr.app
-./scripts/install_login_item.sh install # 登录自启
-```
+## Layout
 
-退出：**菜单栏 🎤 ASR → Quit（⌘Q）** — 会关闭 App 与 asr_daemon。
-
-## 菜单栏状态
-
-| 显示 | 含义 |
+| Path | Role |
 |------|------|
-| `⏳ ASR` | Daemon 加载模型 / 校准中 |
-| `🎤 ASR` | 就绪，可 Start Live Dictation |
-| `🟢 状态：听写中…` | 听写中 |
-| `⚠️ ASR` | 错误（见 `log/macapp.log`） |
+| `macosAsrApp/*.swift` | App source |
+| `macosAsrApp/Info.plist` | Bundle metadata + mic usage string |
+| `macosAsrApp/macosAsrApp.entitlements` | Sandbox off (dev/self-build) |
+| `Assets/AppIcon.png` | Icon source → `build_icon.sh` → `.icns` |
+| `Tools/p0c_selftest.swift` | Headless injection state machine test |
 
-## Live 听写
+## Menu bar states
 
-1. 辅助功能已授权 **macosAsrApp**
-2. 目标 App（备忘录等）光标就位
-3. **Start Live Dictation** → 说话 → **Stop Live Dictation**
+| Display | Meaning |
+|---------|---------|
+| `⏳ ASR` | Loading model / calibrating |
+| `🎤 ASR` | Ready |
+| `🟢 Dictating…` | Live session active |
+| `⚠️ ASR` | Error — see `log/macapp.log` |
 
-App 启动时会自动 `warmUp` daemon，**无需**手动 `python -m asr_daemon`。
+## Settings
 
-## 调优
+**Settings…** (⌘,) — recognition language (Chinese / English), stored in  
+`~/Library/Application Support/macosAsr/config.json`.
 
-| 项 | 默认 | 覆盖 |
-|----|------|------|
-| partial 间隔 | 1.0s | 环境变量 `MACOSASR_PARTIAL_INTERVAL` |
-| 注入按键延迟 | 0.4ms/键 | `TextInjector.swift` |
+Default partial interval: **0.5s** (`asr/config.py`; not in Settings UI).
 
-## 日志
+## Logs
 
-- `log/macapp.log` — 本 App
-- `log/daemon.log` — ASR 后端
-
-## 无 Xcode.app 构建
-
-使用 `scripts/build_macapp.sh`（swiftc + bundle）。可选：`open MacApp/macosAsrApp.xcodeproj`
+- `log/macapp.log` — this app
+- `log/daemon.log` — ASR backend
