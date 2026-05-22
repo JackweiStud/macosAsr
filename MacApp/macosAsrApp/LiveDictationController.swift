@@ -14,37 +14,29 @@ final class LiveDictationController {
 
     var isActive: Bool { isListening }
 
-    func toggle(from view: NSView?) {
-        if isListening {
-            stop()
-        } else {
-            start(from: view)
-        }
-    }
-
-    private func start(from view: NSView?) {
-        DaemonManager.shared.ensureDaemonReady { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success:
-                self.stateMachine.onSessionStopped()
-                self.isListening = true
-                DaemonManager.shared.sendSessionStart()
-                AppLogger.log("live_dictation_started")
-            case let .failure(error):
-                AppLogger.log("live_dictation_start_failed \(error.localizedDescription)", level: "ERROR")
-                self.showAlert(on: view, title: "无法启动 Daemon", text: error.localizedDescription)
+    /// 直接开始听写；DaemonManager 内部负责等就绪。
+    /// onFailure：daemon 启动失败或超时（已在主线程）
+    func start(onFailure: @escaping (String) -> Void) {
+        guard !isListening else { return }
+        DaemonManager.shared.startSession { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success:
+                    self.stateMachine.onSessionStopped()
+                    self.isListening = true
+                    AppLogger.log("live_dictation_started")
+                case let .failure(error):
+                    AppLogger.log("live_dictation_start_failed \(error.localizedDescription)", level: "ERROR")
+                    onFailure(error.localizedDescription)
+                }
             }
         }
     }
 
-    func stopDictation() {
-        stop()
-    }
-
-    private func stop() {
+    func stop() {
         guard isListening else { return }
-        DaemonManager.shared.sendSessionStop()
+        DaemonManager.shared.stopSession()
         isListening = false
         AppLogger.log("live_dictation_stop_sent")
     }
@@ -64,18 +56,12 @@ final class LiveDictationController {
         case "session_stopped":
             isListening = false
             stateMachine.onSessionStopped()
+            DaemonManager.shared.notifySessionStoppedFromDaemon()
             AppLogger.log("live_dictation_session_stopped")
         case "error":
             AppLogger.log("daemon_error \(event.message ?? "?")", level: "ERROR")
         default:
             break
         }
-    }
-
-    private func showAlert(on view: NSView?, title: String, text: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = text
-        alert.runModal()
     }
 }

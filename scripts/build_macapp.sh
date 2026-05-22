@@ -43,9 +43,42 @@ PLIST="$APP/Contents/Info.plist"
 
 chmod +x "$APP/Contents/MacOS/$APP_NAME"
 
-#  ad-hoc 签名，便于出现在「辅助功能」列表
+# 优先用稳定证书 macosAsr Local（rebuild 后辅助功能授权不失效）
+# 没有时 fallback 到 ad-hoc（首次或新机器）
+SIGN_IDENTITY="macosAsr Local"
+sign_with_timeout() {
+  local pid
+  codesign --force --deep --sign "$SIGN_IDENTITY" "$APP" 2>&1 &
+  pid=$!
+  local i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    i=$((i + 1))
+    if [ "$i" -gt 20 ]; then
+      kill -9 "$pid" 2>/dev/null
+      pkill -f SecurityAgent 2>/dev/null || true
+      echo "[warn] codesign hung >10s (likely keychain ACL prompt)"
+      return 124
+    fi
+    sleep 0.5
+  done
+  wait "$pid"
+  return $?
+}
+
 if command -v codesign >/dev/null 2>&1; then
-  codesign --force --deep --sign - "$APP" 2>/dev/null || true
+  if security find-certificate -c "$SIGN_IDENTITY" >/dev/null 2>&1; then
+    if sign_with_timeout; then
+      echo "Signed with: $SIGN_IDENTITY"
+    else
+      echo "[warn] fallback to ad-hoc — run ./scripts/create_codesign_cert.sh first"
+      echo "       to set keychain ACL once and avoid this"
+      codesign --force --deep --sign - "$APP" 2>/dev/null || true
+    fi
+  else
+    echo "[info] cert '$SIGN_IDENTITY' not found, using ad-hoc"
+    echo "[hint] run ./scripts/create_codesign_cert.sh to create stable cert"
+    codesign --force --deep --sign - "$APP" 2>/dev/null || true
+  fi
 fi
 echo "Built: $APP"
 echo "Run: open --env MACOSASR_ROOT=$ROOT \"$APP\""

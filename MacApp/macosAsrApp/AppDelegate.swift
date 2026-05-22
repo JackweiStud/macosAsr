@@ -7,18 +7,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var liveDictation = LiveDictationController(stateMachine: stateMachine)
     private var isRunningMock = false
 
+    private var startStopMenuItem: NSMenuItem?
+    private var statusMenuItem: NSMenuItem?
+    private var preDictationApp: NSRunningApplication?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         logLaunchStatus()
+
         if !injector.isAccessibilityTrusted {
             injector.registerForAccessibilityPrompt()
         }
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appDidBecomeActive),
             name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
+
+        // 监听 daemon 状态，驱动菜单栏 UI
+        DaemonManager.shared.onStateChange = { [weak self] state in
+            self?.applyDaemonState(state)
+        }
+
+        // 启动后立即 warm daemon（不再等用户点 Start）
+        DaemonManager.shared.warmUp()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -43,24 +57,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        updateStatusIcon(listening: false)
         AppLogger.log("status_item_created title=ASR")
 
         let menu = NSMenu()
-        menu.addItem(
-            NSMenuItem(
-                title: "Start Live Dictation…",
-                action: #selector(startLiveDictation),
-                keyEquivalent: ""
-            )
+
+        let statusItemEntry = NSMenuItem(title: "状态：初始化…", action: nil, keyEquivalent: "")
+        statusItemEntry.isEnabled = false
+        menu.addItem(statusItemEntry)
+        statusMenuItem = statusItemEntry
+
+        menu.addItem(NSMenuItem.separator())
+
+        let startStop = NSMenuItem(
+            title: "Start Live Dictation",
+            action: #selector(toggleLiveDictation),
+            keyEquivalent: ""
         )
-        menu.addItem(
-            NSMenuItem(
-                title: "Stop Live Dictation",
-                action: #selector(stopLiveDictation),
-                keyEquivalent: ""
-            )
-        )
+        menu.addItem(startStop)
+        startStopMenuItem = startStop
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(
             NSMenuItem(
@@ -88,52 +103,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.target = self
         }
         statusItem?.menu = menu
+
+        applyDaemonState(.idle)
     }
 
-    private func updateStatusIcon(listening: Bool) {
-        guard let button = statusItem?.button else {
-            AppLogger.log("status_item_button_nil", level: "ERROR")
-            return
+    // MARK: - 菜单栏四态显示
+
+    private func applyDaemonState(_ state: DaemonState) {
+        guard let button = statusItem?.button else { return }
+
+        switch state {
+        case .idle:
+            button.title = "⏳ ASR"
+            button.contentTintColor = nil
+            statusMenuItem?.title = "状态：未启动"
+            startStopMenuItem?.title = "Start Live Dictation"
+            startStopMenuItem?.isEnabled = false
+        case .loading:
+            button.title = "⏳ ASR"
+            button.contentTintColor = nil
+            statusMenuItem?.title = "状态：加载模型中…"
+            startStopMenuItem?.title = "Start Live Dictation（加载中…）"
+            startStopMenuItem?.isEnabled = false
+        case .ready:
+            button.title = "🎤 ASR"
+            button.contentTintColor = nil
+            statusMenuItem?.title = "状态：就绪"
+            startStopMenuItem?.title = "Start Live Dictation"
+            startStopMenuItem?.isEnabled = true
+        case .listening:
+            button.title = "🔴 ASR●"
+            button.contentTintColor = .systemRed
+            statusMenuItem?.title = "状态：听写中…"
+            startStopMenuItem?.title = "Stop Live Dictation"
+            startStopMenuItem?.isEnabled = true
+        case let .error(msg):
+            button.title = "⚠️ ASR"
+            button.contentTintColor = .systemOrange
+            statusMenuItem?.title = "状态：错误（点击查看）"
+            startStopMenuItem?.title = "Start Live Dictation"
+            startStopMenuItem?.isEnabled = false
+            AppLogger.log("daemon_error_state \(msg)", level: "ERROR")
         }
-        button.title = listening ? "🎤 ASR●" : "🎤 ASR"
-        button.image = nil
-        button.contentTintColor = listening ? .systemRed : nil
     }
 
-    @objc private func startLiveDictation() {
+    // MARK: - 菜单动作
+
+    @objc private func toggleLiveDictation() {
         guard requireAccessibility() else { return }
 
-        // 记住当前最前台 App（备忘录等），对话框关闭后归还焦点
-        let previousApp = NSWorkspace.shared.frontmostApplication
-
-        let alert = NSAlert()
-        alert.messageText = "Live 听写（P0d）"
-        alert.informativeText = """
-        1. 确认「备忘录」已打开并放置好光标
-        2. 点「开始」后对着麦克风说话
-        3. 完成后菜单栏选 Stop Live Dictation
-
-        App 会自动启动 asr_daemon（若未运行）。
-        """
-        alert.addButton(withTitle: "开始")
-        alert.addButton(withTitle: "取消")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        // 归还焦点给目标 App，让 CGEvent 打进正确窗口（macOS 14+ API）
-        previousApp?.activate()
-
-        updateStatusIcon(listening: true)
-        liveDictation.toggle(from: statusItem?.button)
-        // 若 daemon 启动失败，LiveDictationController 会弹错；此处延迟恢复图标
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            guard let self, !self.liveDictation.isActive else { return }
-            self.updateStatusIcon(listening: false)
+        switch DaemonManager.shared.state {
+        case .listening:
+            liveDictation.stop()
+        case .ready:
+            preDictationApp = NSWorkspace.shared.frontmostApplication
+            liveDictation.start { [weak self] errorMsg in
+                self?.showError("无法启动听写", text: errorMsg)
+            }
+            // 把焦点还给目标 App，让 CGEvent 注入对（macOS 14+ API）
+            preDictationApp?.activate()
+        default:
+            // loading/idle/error：菜单本应已禁用，理论上走不到
+            return
         }
-    }
-
-    @objc private func stopLiveDictation() {
-        liveDictation.stopDictation()
-        updateStatusIcon(listening: false)
     }
 
     @objc private func runMockTest() {
@@ -173,18 +205,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = "需要辅助功能权限"
         alert.informativeText = """
-        请按顺序操作（仅「出现在列表里」不够，开关必须是蓝色 ON）：
+        请按顺序操作（开关必须是蓝色 ON）：
 
         1. 点「打开系统设置」
-        2. 在 macosAsrApp 一行把开关拨到 ON（蓝色）
-        3. 若开关已是 ON 仍失败：点列表下方「−」删除 macosAsrApp，再重新 launch 脚本
-        4. 菜单栏 🎤 ASR → Quit（⌘Q），再运行 ./scripts/launch_macapp.sh
-        5. 重新试 Mock 测试
-
-        每次 ./scripts/build_macapp.sh 重建后，可能需重复步骤 2 或 3。
-
-        App 路径：
-        \(Bundle.main.bundlePath)
+        2. 找到 macosAsrApp，把开关拨到 ON
+        3. 若已 ON 仍失败：删掉 macosAsrApp 条目，重启 App，重新授权
+        4. 菜单栏 ASR → Quit（⌘Q），再启动 App
         """
         alert.addButton(withTitle: "打开系统设置")
         alert.addButton(withTitle: "取消")
@@ -198,5 +224,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func showError(_ title: String, text: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 }
