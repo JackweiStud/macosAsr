@@ -103,37 +103,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - 菜单栏四态显示
 
+    private func resetStatusBarButtonStyle() {
+        guard let button = statusItem?.button else { return }
+        button.attributedTitle = NSAttributedString()
+        button.image = nil
+        button.imagePosition = .noImage
+        button.contentTintColor = nil
+    }
+
     private func applyDaemonState(_ state: DaemonState) {
         guard let button = statusItem?.button else { return }
+        resetStatusBarButtonStyle()
 
         switch state {
         case .idle:
             button.title = "⏳ ASR"
-            button.contentTintColor = nil
             statusMenuItem?.title = "状态：未启动"
             startStopMenuItem?.title = "Start Live Dictation"
             startStopMenuItem?.isEnabled = false
         case .loading:
             button.title = "⏳ ASR"
-            button.contentTintColor = nil
             statusMenuItem?.title = "状态：加载模型中…"
             startStopMenuItem?.title = "Start Live Dictation（加载中…）"
             startStopMenuItem?.isEnabled = false
         case .ready:
             button.title = "🎤 ASR"
-            button.contentTintColor = nil
             statusMenuItem?.title = "状态：就绪"
             startStopMenuItem?.title = "Start Live Dictation"
             startStopMenuItem?.isEnabled = true
         case .listening:
-            button.title = "状态：听写中…"
-            button.contentTintColor = .systemRed
+            // 绿点用 emoji；文字交给系统着色（深色菜单栏自动变白）
+            button.title = "🟢 状态：听写中…"
             statusMenuItem?.title = "状态：听写中…"
             startStopMenuItem?.title = "Stop Live Dictation"
             startStopMenuItem?.isEnabled = true
         case let .error(msg):
             button.title = "⚠️ ASR"
-            button.contentTintColor = .systemOrange
             statusMenuItem?.title = "状态：错误（点击查看）"
             startStopMenuItem?.title = "Start Live Dictation"
             startStopMenuItem?.isEnabled = false
