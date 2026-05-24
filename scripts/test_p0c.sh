@@ -16,6 +16,7 @@ SWIFT_SOURCES=(
   MacApp/macosAsrApp/DaemonClient.swift
   MacApp/macosAsrApp/DaemonManager.swift
   MacApp/macosAsrApp/LiveDictationController.swift
+  MacApp/macosAsrApp/GlobalHotkeyMonitor.swift
   MacApp/macosAsrApp/AppDelegate.swift
   MacApp/macosAsrApp/main.swift
 )

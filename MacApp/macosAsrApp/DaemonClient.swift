@@ -8,6 +8,7 @@ struct DaemonEvent {
     var message: String? { raw["message"] as? String }
     var modelLoaded: Bool? { raw["model_loaded"] as? Bool }
     var calibrated: Bool? { raw["calibrated"] as? Bool }
+    var warmedUp: Bool? { raw["warmed_up"] as? Bool }
 }
 
 /// Unix socket JSON-lines client (SDD §5). Keeps one connection for session broadcasts.

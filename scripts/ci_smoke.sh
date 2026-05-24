@@ -21,6 +21,7 @@ else
 fi
 
 python -c "from asr.config import AsrConfig; c = AsrConfig(); assert c.partial_interval_seconds == 0.5"
+python -m unittest discover -s tests
 python -m asr_daemon --help >/dev/null
 
 echo "PASS ci smoke"

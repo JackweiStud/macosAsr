@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import sys
+import time
 from typing import Optional
 
 import numpy as np
@@ -148,3 +149,24 @@ def generate_utterance_text(model, blocks: list[AudioBlock], config: AsrConfig) 
     if text is None:
         text = str(result)
     return normalize_text(text)
+
+
+def warm_up_asr_model(model, config: AsrConfig) -> dict[str, float]:
+    sample_count = max(1, int(config.sample_rate * config.warmup_audio_seconds))
+    block = AudioBlock(
+        samples=np.zeros(sample_count, dtype=np.float32),
+        captured_at=time.perf_counter(),
+    )
+
+    stream_start = time.perf_counter()
+    stream_utterance_text(model, [block], config)
+    stream_ms = (time.perf_counter() - stream_start) * 1000.0
+
+    generate_start = time.perf_counter()
+    generate_utterance_text(model, [block], config)
+    generate_ms = (time.perf_counter() - generate_start) * 1000.0
+
+    return {
+        "stream_ms": stream_ms,
+        "generate_ms": generate_ms,
+    }

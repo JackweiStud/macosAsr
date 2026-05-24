@@ -128,5 +128,6 @@ class SessionController(EventCallback):
             "session_id": self._session_id,
             "model": self._config.model,
             "calibrated": self._engine.calibrated,
+            "warmed_up": self._engine.warmed_up,
             "language": self._config.language,
         }

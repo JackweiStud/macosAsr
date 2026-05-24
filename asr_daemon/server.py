@@ -63,6 +63,10 @@ class DaemonServer:
     def model_loaded(self) -> bool:
         return self._engine.model_loaded if self._engine else False
 
+    @property
+    def warmed_up(self) -> bool:
+        return self._engine.warmed_up if self._engine else False
+
     def start(self) -> None:
         if not self._skip_model:
             require_runtime_dependencies()
@@ -189,6 +193,7 @@ class DaemonServer:
                     "protocol": 1,
                     "type": "pong",
                     "model_loaded": self.model_loaded,
+                    "warmed_up": self.warmed_up,
                     "calibrated": self._engine.calibrated if self._engine else False,
                 }
             ]

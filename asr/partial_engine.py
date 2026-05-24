@@ -21,6 +21,7 @@ from asr.asr_core import (
     require_runtime_dependencies,
     should_drop_final_text,
     stream_utterance_text,
+    warm_up_asr_model,
 )
 from asr.config import AsrConfig
 
@@ -77,6 +78,7 @@ class PartialEngine:
         self._measured_noise_floor = 0.0
         self._calibrated = False
         self._model_loaded = False
+        self._warmed_up = False
         self._stream: object | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -89,6 +91,10 @@ class PartialEngine:
     @property
     def calibrated(self) -> bool:
         return self._calibrated
+
+    @property
+    def warmed_up(self) -> bool:
+        return self._warmed_up
 
     @property
     def active_threshold(self) -> float:
@@ -171,6 +177,18 @@ class PartialEngine:
         try:
             logger.info("loading model on worker thread: %s", cfg.model)
             self._model = load_model(cfg.model)
+            if cfg.warmup_enabled:
+                try:
+                    stats = warm_up_asr_model(self._model, cfg)
+                    self._warmed_up = True
+                    logger.info(
+                        "ASR warmup complete stream_ms=%.1f generate_ms=%.1f",
+                        stats["stream_ms"],
+                        stats["generate_ms"],
+                    )
+                except Exception:
+                    self._warmed_up = False
+                    logger.exception("ASR warmup failed; continuing without warmup")
             self._model_loaded = True
             self._calibrate_noise(cfg)
             while not self._stop_event.is_set():

@@ -32,5 +32,7 @@ class AsrConfig:
 
     stream_chunk_duration: float = 1200.0
     stream_min_chunk_duration: float = 1.0
+    warmup_enabled: bool = True
+    warmup_audio_seconds: float = 1.0
     min_final_chars: int = 2
     filter_fillers: bool = True
