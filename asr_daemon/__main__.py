@@ -81,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
     if partial_env:
         config.partial_interval_seconds = float(partial_env)
 
+    logging.info("ASR config %s", config.log_summary())
+
     server = DaemonServer(args.socket, config, skip_model=args.skip_model)
 
     def _shutdown(*_sig):  # pragma: no cover

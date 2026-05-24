@@ -19,7 +19,7 @@ class AsrConfig:
     partial_min_audio_seconds: float = 0.60
 
     vad_rms_threshold: float = 0.0
-    vad_end_silence_seconds: float = 0.30
+    vad_end_silence_seconds: float = 1.50
     vad_start_speech_seconds: float = 0.20
     vad_min_utterance_seconds: float = 0.60
     vad_pre_roll_seconds: float = 0.50
@@ -36,3 +36,30 @@ class AsrConfig:
     warmup_audio_seconds: float = 1.0
     min_final_chars: int = 2
     filter_fillers: bool = True
+
+    def log_summary(self) -> str:
+        return (
+            f"model={self.model} "
+            f"language={self.language} "
+            f"sample_rate={self.sample_rate} "
+            f"device={self.device} "
+            f"input_block={self.input_block_seconds:.2f}s "
+            f"partial_interval={self.partial_interval_seconds:.2f}s "
+            f"partial_min_audio={self.partial_min_audio_seconds:.2f}s "
+            f"vad_rms_threshold={self.vad_rms_threshold:.4f} "
+            f"vad_end_silence={self.vad_end_silence_seconds:.2f}s "
+            f"vad_start_speech={self.vad_start_speech_seconds:.2f}s "
+            f"vad_min_utterance={self.vad_min_utterance_seconds:.2f}s "
+            f"vad_pre_roll={self.vad_pre_roll_seconds:.2f}s "
+            f"vad_max_utterance={self.vad_max_utterance_seconds:.2f}s "
+            f"noise_calibration={self.noise_calibration_seconds:.2f}s "
+            f"noise_multiplier={self.noise_multiplier:.2f} "
+            f"noise_margin={self.noise_margin:.4f} "
+            f"noise_max_threshold={self.noise_max_threshold:.4f} "
+            f"stream_chunk_duration={self.stream_chunk_duration:.2f} "
+            f"stream_min_chunk_duration={self.stream_min_chunk_duration:.2f} "
+            f"warmup_enabled={self.warmup_enabled} "
+            f"warmup_audio={self.warmup_audio_seconds:.2f}s "
+            f"min_final_chars={self.min_final_chars} "
+            f"filter_fillers={self.filter_fillers}"
+        )
