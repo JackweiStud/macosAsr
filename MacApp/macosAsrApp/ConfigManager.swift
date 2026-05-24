@@ -17,6 +17,9 @@ final class ConfigManager {
     }
 
     var language: String { config.language }
+    var asrModel: String { config.asrModel }
+    var partialIntervalSeconds: Double { config.partialIntervalSeconds }
+    var vadEndSilenceSeconds: Double { config.vadEndSilenceSeconds }
 
     func saveLanguage(_ language: String) throws {
         guard RecognitionLanguage(asrValue: language) != nil else {
@@ -27,14 +30,43 @@ final class ConfigManager {
         AppLogger.log("config_saved language=\(language) path=\(configURL.path)")
     }
 
+    func saveAdvancedDictationSettings(
+        asrModel: String,
+        partialIntervalSeconds: Double,
+        vadEndSilenceSeconds: Double
+    ) throws {
+        guard AsrModelPreset.allCases.contains(where: { $0.rawValue == asrModel }) else {
+            throw ConfigError.invalidAsrModel
+        }
+        guard PartialIntervalPreset.allCases.contains(where: { $0.rawValue == partialIntervalSeconds }) else {
+            throw ConfigError.invalidPartialInterval
+        }
+        guard VadEndSilencePreset.allCases.contains(where: { $0.rawValue == vadEndSilenceSeconds }) else {
+            throw ConfigError.invalidVadEndSilence
+        }
+        config.asrModel = asrModel
+        config.partialIntervalSeconds = partialIntervalSeconds
+        config.vadEndSilenceSeconds = vadEndSilenceSeconds
+        try save()
+        AppLogger.log(
+            "config_saved asr_model=\(asrModel) partial_interval=\(partialIntervalSeconds) vad_end_silence=\(vadEndSilenceSeconds) path=\(configURL.path)"
+        )
+    }
+
     // MARK: - Private
 
     private enum ConfigError: LocalizedError {
         case invalidLanguage
+        case invalidAsrModel
+        case invalidPartialInterval
+        case invalidVadEndSilence
 
         var errorDescription: String? {
             switch self {
             case .invalidLanguage: return "不支持的识别语言"
+            case .invalidAsrModel: return "不支持的 ASR 模型"
+            case .invalidPartialInterval: return "不支持的实时文字刷新速度"
+            case .invalidVadEndSilence: return "不支持的断句等待时间"
             }
         }
     }

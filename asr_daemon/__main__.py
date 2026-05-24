@@ -13,6 +13,16 @@ from asr.run_utils import DEFAULT_DAEMON_LOG, PROJECT_ROOT, setup_tee
 from asr_daemon.server import DaemonServer
 
 
+def apply_env_overrides(config: AsrConfig, environ: dict[str, str]) -> None:
+    partial_env = environ.get("MACOSASR_PARTIAL_INTERVAL")
+    if partial_env:
+        config.partial_interval_seconds = float(partial_env)
+
+    vad_end_env = environ.get("MACOSASR_VAD_END_SILENCE")
+    if vad_end_env:
+        config.vad_end_silence_seconds = float(vad_end_env)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="asr_daemon",
@@ -77,9 +87,7 @@ def main(argv: list[str] | None = None) -> int:
         config.model = args.model
     if args.language:
         config.language = args.language
-    partial_env = os.environ.get("MACOSASR_PARTIAL_INTERVAL")
-    if partial_env:
-        config.partial_interval_seconds = float(partial_env)
+    apply_env_overrides(config, os.environ)
 
     logging.info("ASR config %s", config.log_summary())
 

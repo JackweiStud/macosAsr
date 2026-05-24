@@ -189,14 +189,13 @@ final class DaemonManager {
 
         let task = Process()
         task.executableURL = python
-        task.arguments = ["-m", "asr_daemon"]
+        task.arguments = ["-m", "asr_daemon", "--model", ConfigManager.shared.asrModel]
         task.currentDirectoryURL = root
         var env = ProcessInfo.processInfo.environment
         env["PYTHONPATH"] = root.path
         env["MACOSASR_ROOT"] = root.path
-        if env["MACOSASR_PARTIAL_INTERVAL"] == nil {
-            env["MACOSASR_PARTIAL_INTERVAL"] = "0.5"
-        }
+        env["MACOSASR_PARTIAL_INTERVAL"] = String(format: "%.2f", ConfigManager.shared.partialIntervalSeconds)
+        env["MACOSASR_VAD_END_SILENCE"] = String(format: "%.2f", ConfigManager.shared.vadEndSilenceSeconds)
         task.environment = env
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice

@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from asr.config import AsrConfig
+from asr_daemon.__main__ import apply_env_overrides
 
 
 class AsrConfigTests(unittest.TestCase):
@@ -34,6 +35,20 @@ class AsrConfigTests(unittest.TestCase):
         self.assertIn("warmup_audio=1.00s", summary)
         self.assertIn("min_final_chars=2", summary)
         self.assertIn("filter_fillers=True", summary)
+
+    def test_apply_env_overrides_accepts_developer_tuning_values(self) -> None:
+        config = AsrConfig()
+
+        apply_env_overrides(
+            config,
+            {
+                "MACOSASR_PARTIAL_INTERVAL": "0.3",
+                "MACOSASR_VAD_END_SILENCE": "2.0",
+            },
+        )
+
+        self.assertEqual(config.partial_interval_seconds, 0.3)
+        self.assertEqual(config.vad_end_silence_seconds, 2.0)
 
 
 if __name__ == "__main__":
