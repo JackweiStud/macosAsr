@@ -229,6 +229,8 @@ export MACOSASR_PARTIAL_INTERVAL=0.8
 
 Lower = snappier live text, more GPU/injection load. Not exposed in the Settings UI.
 
+For long utterances, partial refresh stops after about **8s** to avoid repeatedly re-running inference over the whole utterance. Final text still emits and corrects the utterance after you stop speaking.
+
 Recognition language is in **Settings…** (Chinese / English), stored under `~/Library/Application Support/macosAsr/config.json`.
 
 ---

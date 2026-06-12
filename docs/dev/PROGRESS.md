@@ -6,14 +6,13 @@
 
 ## Current phase
 
-**v0.1.x 开源基线** — P0 完成；**全局 ⌥Z Toggle**；设置页（语言/模型/听写参数）；README 中英双语；CI 冒烟；2026-06-12 P0 review hardening 与 P1-1 daemon 自愈已落地
+**v0.1.x 开源基线** — P0 完成；**全局 ⌥Z Toggle**；设置页（语言/模型/听写参数）；README 中英双语；CI 冒烟；2026-06-12 P0 review hardening、P1-1 daemon 自愈、P1-3 partial 限流已落地
 
 ## Next actions（P1 候选）
 
-1. 长句 partial 推理上限，避免 O(n²) 拖垮 live 体验
-2. 注入挪到后台串行队列，并加入听写中用户输入冲突保护
-3. 首次模型下载进度反馈
-4. 撤销上一句热键（候选：⌥⇧Z）
+1. 注入挪到后台串行队列，并加入听写中用户输入冲突保护
+2. 首次模型下载进度反馈
+3. 撤销上一句热键（候选：⌥⇧Z）
 
 ---
 
@@ -30,6 +29,7 @@
 | 设置页（语言） | ✅ | Application Support `config.json` |
 | P0 review hardening | ✅ | 移除本机模型路径；Quit bounded shutdown；修正 utterance_id；删空实验目录 |
 | P1-1 daemon 自愈 | ✅ | daemon 退出/send 失败进入 `⚠️ ASR`；错误态可重启；连续失败限流 |
+| P1-3 partial 限流 | ✅ | 单句超过约 8s 后停止 partial 刷新；final 仍完整输出 |
 | v0.1.0 开源准备 | ✅ | LICENSE、pin deps、CI、双语 README |
 | 移除 xcodeproj | ✅ | 仅 swiftc 构建 |
 
@@ -52,6 +52,7 @@ Quit（⌘Q）关闭 App **并** shutdown daemon。
 | 参数 | SDD 默认 | 当前 |
 |------|----------|------|
 | partial_interval | 0.25s | **0.5s**（`MACOSASR_PARTIAL_INTERVAL` 可覆盖） |
+| partial_max_audio | — | **8.0s**；超过后暂停 partial，等待 final |
 | 识别语言 | Chinese | Settings…；持久化 Application Support |
 | ASR 模型 | Qwen3-ASR-0.6B | Settings…；默认 `mlx-community/Qwen3-ASR-0.6B-8bit`，可选 `mlx-community/Qwen3-ASR-1.7B-8bit` |
 | 触发方式 | Fn+V PTT（P1） | **⌥Z Toggle**（全局 + 菜单）；菜单 Start/Stop 仍可用 |
@@ -71,5 +72,6 @@ Quit（⌘Q）关闭 App **并** shutdown daemon。
 | 2026-05-22+ | 全局 **⌥Z** Toggle（`CGEventTap`）；README / SDD 同步 |
 | 2026-06-12 | P0 review hardening：模型 preset 去本机路径、Quit 退出兜底、`utterance_id` 语义修正、删除空实验目录 |
 | 2026-06-12 | P1-1 daemon 自愈：`terminationHandler`、send/read failure 回调、错误态重启与限流 |
+| 2026-06-12 | P1-3 partial 限流：8s 后停止整句重复推理，保留 final 修正 |
 
 Agent 交接归档见 [`archive/AGENT_HANDOFF.md`](./archive/AGENT_HANDOFF.md)。

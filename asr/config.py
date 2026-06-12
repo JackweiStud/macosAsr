@@ -17,6 +17,7 @@ class AsrConfig:
     input_block_seconds: float = 0.02
     partial_interval_seconds: float = 0.5   # live 感与推理开销折中；可用 MACOSASR_PARTIAL_INTERVAL 覆盖
     partial_min_audio_seconds: float = 0.60
+    partial_max_audio_seconds: float = 8.0
 
     vad_rms_threshold: float = 0.0
     vad_end_silence_seconds: float = 1.50
@@ -46,6 +47,7 @@ class AsrConfig:
             f"input_block={self.input_block_seconds:.2f}s "
             f"partial_interval={self.partial_interval_seconds:.2f}s "
             f"partial_min_audio={self.partial_min_audio_seconds:.2f}s "
+            f"partial_max_audio={self.partial_max_audio_seconds:.2f}s "
             f"vad_rms_threshold={self.vad_rms_threshold:.4f} "
             f"vad_end_silence={self.vad_end_silence_seconds:.2f}s "
             f"vad_start_speech={self.vad_start_speech_seconds:.2f}s "

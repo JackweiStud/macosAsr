@@ -20,6 +20,7 @@ class AsrConfigTests(unittest.TestCase):
         self.assertIn("sample_rate=16000", summary)
         self.assertIn("partial_interval=0.50s", summary)
         self.assertIn("partial_min_audio=0.60s", summary)
+        self.assertIn("partial_max_audio=8.00s", summary)
         self.assertIn("vad_end_silence=1.50s", summary)
         self.assertIn("vad_start_speech=0.20s", summary)
         self.assertIn("vad_min_utterance=0.60s", summary)

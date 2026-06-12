@@ -227,6 +227,8 @@ export MACOSASR_PARTIAL_INTERVAL=0.8
 
 数值越小 live 感越强，GPU/注入开销越大。设置页不提供此项调整。
 
+长句会在累计约 **8 秒**后停止刷新 partial，避免反复对整句音频重跑推理；停止说话后 final 仍会输出并修正整句。
+
 识别语言在 **Settings…**（中文 / English）中配置，保存在 `~/Library/Application Support/macosAsr/config.json`。
 
 ---

@@ -317,9 +317,14 @@ class PartialEngine:
             return
 
         utterance_seconds = sum(len(b.samples) for b in utterance.blocks) / float(cfg.sample_rate)
+        within_partial_window = (
+            cfg.partial_max_audio_seconds <= 0
+            or utterance_seconds <= cfg.partial_max_audio_seconds
+        )
 
         if (
             utterance_seconds >= cfg.partial_min_audio_seconds
+            and within_partial_window
             and now - utterance.last_partial_at >= cfg.partial_interval_seconds
         ):
             partial_call_at = time.perf_counter()
