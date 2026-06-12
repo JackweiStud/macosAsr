@@ -42,6 +42,7 @@ class EventCallback(Protocol):
 
 @dataclasses.dataclass
 class _UtteranceState:
+    utterance_id: int
     blocks: list[AudioBlock]
     started_at: float
     last_voice_at: float
@@ -284,7 +285,9 @@ class PartialEngine:
                     if block_rms >= self._active_threshold:
                         self._voiced_run_seconds += len(block.samples) / float(cfg.sample_rate)
                         if self._voiced_run_seconds >= start_speech_threshold:
+                            self._utterance_id += 1
                             self._utterance = _UtteranceState(
+                                utterance_id=self._utterance_id,
                                 blocks=list(self._pre_roll),
                                 started_at=self._pre_roll[0].captured_at if self._pre_roll else block.captured_at,
                                 last_voice_at=block.captured_at,
@@ -327,7 +330,7 @@ class PartialEngine:
                 utterance.last_partial_text = partial_text
                 if utterance.first_partial_at is None:
                     utterance.first_partial_at = partial_call_at
-                self._emit_partial(partial_text)
+                self._emit_partial(utterance.utterance_id, partial_text)
 
         if utterance.silence_run_seconds >= end_silence_threshold:
             with self._lock:
@@ -346,9 +349,7 @@ class PartialEngine:
                 self._voiced_run_seconds = 0.0
             self._finalize_utterance(utterance)
 
-    def _emit_partial(self, text: str) -> None:
-        self._utterance_id += 1
-        uid = self._utterance_id
+    def _emit_partial(self, uid: int, text: str) -> None:
         logger.debug("partial u=%s len=%s", uid, len(text))
         self._callback.on_partial(uid, text)
 
@@ -360,7 +361,7 @@ class PartialEngine:
             return
 
         final_text = generate_utterance_text(self._model, utterance.blocks, cfg)
-        uid = self._utterance_id if self._utterance_id else 1
+        uid = utterance.utterance_id
 
         if final_text and should_drop_final_text(final_text, cfg):
             reason = "filler_or_short"

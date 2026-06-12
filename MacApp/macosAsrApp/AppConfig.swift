@@ -53,12 +53,12 @@ struct AppConfig: Codable, Equatable {
 
 enum AsrModelPreset: String, CaseIterable {
     case qwen06B = "mlx-community/Qwen3-ASR-0.6B-8bit"
-    case qwen17BLocal = "/Users/jackwl/.cache/huggingface/hub/models--mlx-community--Qwen3-ASR-1.7B-8bit/snapshots/a8379a2e2f9e313c9292cdf1af4055ab56d50d55"
+    case qwen17B = "mlx-community/Qwen3-ASR-1.7B-8bit"
 
     var displayName: String {
         switch self {
         case .qwen06B: return "Qwen3-ASR 0.6B (default)"
-        case .qwen17BLocal: return "Qwen3-ASR 1.7B (local)"
+        case .qwen17B: return "Qwen3-ASR 1.7B"
         }
     }
 }

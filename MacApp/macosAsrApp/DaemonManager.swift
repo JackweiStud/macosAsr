@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// 守护进程状态（单一事实源，驱动菜单栏 UI）
@@ -104,9 +105,18 @@ final class DaemonManager {
             clientConnected = false
         }
         if let proc = daemonProcess, proc.isRunning {
-            proc.waitUntilExit()
+            let deadline = Date().addingTimeInterval(3.0)
+            while proc.isRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
             if proc.isRunning {
+                AppLogger.log("daemon_shutdown timeout; terminating pid=\(proc.processIdentifier)", level: "WARN")
                 proc.terminate()
+                Thread.sleep(forTimeInterval: 0.5)
+                if proc.isRunning {
+                    AppLogger.log("daemon_shutdown SIGKILL pid=\(proc.processIdentifier)", level: "ERROR")
+                    kill(proc.processIdentifier, SIGKILL)
+                }
             }
         }
         daemonProcess = nil

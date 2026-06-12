@@ -189,7 +189,7 @@ Step 3 (`create_codesign_cert.sh`) creates a **local self-signed** cert for deve
 | **Desktop** | `./scripts/install_desktop_shortcut.sh` then double-click **`~/Desktop/macosAsr.app`** | Writes `Application Support/macosAsr/repo_root`; re-run install if you move the clone |
 | **Login item** | `./scripts/install_login_item.sh install` | Uses same `launch.sh`; remove: `uninstall` |
 
-**Quit (⌘Q)** shuts down the app **and** `asr_daemon`, freeing model memory.
+**Quit (⌘Q)** shuts down the app **and** `asr_daemon`, freeing model memory. If the daemon is stuck, the app waits briefly and then terminates it.
 
 ### Desktop shortcut details
 
@@ -276,7 +276,7 @@ tail -20 log/daemon.log
 | **Ω** appears when pressing ⌥Z | Rebuild latest app (tap should consume ⌥Z); confirm Accessibility is ON |
 | codesign hangs | Run `./scripts/setup_codesign_acl.sh` |
 | Quit greyed out | Rebuild (Quit must target the app action) |
-| Daemon still in memory after quit | Quit sends shutdown; if stuck: `pkill -f asr_daemon` |
+| Daemon still in memory after quit | Rebuild the latest app; Quit now waits briefly and terminates a stuck daemon. If a stale process remains, run `pkill -f asr_daemon` |
 | Desktop shortcut fails after moving repo | Re-run `./scripts/install_desktop_shortcut.sh` from the new clone path |
 
 ---

@@ -187,7 +187,7 @@ macOS 的 **辅助功能** 授权绑定在 App 的 **代码身份** 上：
 | **桌面一键** | `./scripts/install_desktop_shortcut.sh` → 双击 **`~/Desktop/macosAsr.app`** | 路径写入 Application Support；移动 clone 后需重新安装 |
 | **登录自启** | `./scripts/install_login_item.sh install` | 共用 `launch.sh`；移除：`uninstall` |
 
-退出 App（菜单 **Quit ⌘Q**）时会 **同时关闭 asr_daemon**，释放模型内存。
+退出 App（菜单 **Quit ⌘Q**）时会 **同时关闭 asr_daemon**，释放模型内存；若 daemon 卡住，App 会短暂等待后终止它。
 
 ### 桌面快捷方式说明
 
@@ -276,7 +276,7 @@ tail -20 log/daemon.log
 | 按 **⌥Z** 出现 **Ω** | rebuild 最新版（会吞掉 ⌥Z）；确认辅助功能已 ON |
 | codesign 卡住 | 运行 `./scripts/setup_codesign_acl.sh` |
 | Quit 灰色无法退出 | 已修复：Quit 需指向 App 自身 action；请 rebuild 后重试 |
-| 退出后 daemon 仍占内存 | 正常：Quit 会发 shutdown；若异常残留可 `pkill -f asr_daemon` |
+| 退出后 daemon 仍占内存 | rebuild 最新版；Quit 会短等后终止卡住的 daemon。若异常残留仍存在，可 `pkill -f asr_daemon` |
 | 桌面快捷方式移动仓库后失效 | 在新路径重新运行 `./scripts/install_desktop_shortcut.sh` |
 
 ---
