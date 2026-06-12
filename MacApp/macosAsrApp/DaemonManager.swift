@@ -18,6 +18,12 @@ final class DaemonManager {
     private let client = DaemonClient()
     private var clientConnected = false
     private var warming = false
+    private var isShuttingDown = false
+    private var consecutiveRestartFailures = 0
+    private let maxRestartFailures = 3
+    private let restartBackoffSeconds: TimeInterval = 2.0
+    private var lastRestartFailureAt = Date.distantPast
+    private var pendingWarmUpAfterBackoff = false
 
     private(set) var state: DaemonState = .idle {
         didSet {
@@ -39,12 +45,18 @@ final class DaemonManager {
         set { client.onEvent = newValue }
     }
 
-    private init() {}
+    private init() {
+        client.onConnectionFailure = { [weak self] error in
+            self?.markDaemonFailed("daemon connection failed: \(error.localizedDescription)")
+        }
+    }
 
     /// App 启动时调用：spawn daemon、连接 socket、轮询 ping 直到 ready
     func warmUp() {
         guard !warming else { return }
         guard state != .ready, state != .listening else { return }
+        guard canAttemptRestartIfNeeded() else { return }
+        isShuttingDown = false
         warming = true
         state = .loading
 
@@ -53,9 +65,10 @@ final class DaemonManager {
             self.warming = false
             switch result {
             case .success:
+                self.consecutiveRestartFailures = 0
                 if self.state != .listening { self.state = .ready }
             case let .failure(error):
-                self.state = .error(error.localizedDescription)
+                self.recordRestartFailure(error.localizedDescription)
             }
         }
     }
@@ -65,9 +78,7 @@ final class DaemonManager {
         let language = ConfigManager.shared.language
         switch state {
         case .ready:
-            client.send(cmd: "session_start", extra: ["language": language])
-            state = .listening
-            completion(.success(()))
+            sendSessionStart(language: language, completion: completion)
         case .listening:
             completion(.success(()))
         case .idle, .loading, .error:
@@ -77,9 +88,7 @@ final class DaemonManager {
                 guard let self else { return }
                 switch result {
                 case .success:
-                    self.client.send(cmd: "session_start", extra: ["language": language])
-                    self.state = .listening
-                    completion(.success(()))
+                    self.sendSessionStart(language: language, completion: completion)
                 case let .failure(err):
                     completion(.failure(err))
                 }
@@ -95,6 +104,7 @@ final class DaemonManager {
 
     /// App 退出时结束 session、通知 daemon shutdown 并断开连接
     func shutdown() {
+        isShuttingDown = true
         if state == .listening {
             stopSession()
         }
@@ -162,6 +172,66 @@ final class DaemonManager {
         AppLogger.log("removed stale socket", level: "WARN")
     }
 
+    private func canAttemptRestartIfNeeded() -> Bool {
+        guard case .error = state else { return true }
+        if consecutiveRestartFailures >= maxRestartFailures {
+            state = .error("daemon 连续失败 \(maxRestartFailures) 次，已停止自动重启；请检查 log/daemon.log")
+            return false
+        }
+        let elapsed = Date().timeIntervalSince(lastRestartFailureAt)
+        guard elapsed < restartBackoffSeconds else { return true }
+        guard !pendingWarmUpAfterBackoff else { return false }
+
+        pendingWarmUpAfterBackoff = true
+        let delay = restartBackoffSeconds - elapsed
+        AppLogger.log("daemon_restart_backoff delay=\(String(format: "%.2f", delay))s", level: "WARN")
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            self.pendingWarmUpAfterBackoff = false
+            self.warmUp()
+        }
+        return false
+    }
+
+    private func recordRestartFailure(_ message: String) {
+        consecutiveRestartFailures += 1
+        lastRestartFailureAt = Date()
+        state = .error(message)
+    }
+
+    private func markDaemonFailed(_ message: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard !self.isShuttingDown else { return }
+            if case .error = self.state { return }
+            self.warming = false
+            self.clientConnected = false
+            self.client.disconnect()
+            if let proc = self.daemonProcess, proc.isRunning {
+                AppLogger.log("daemon_failure terminating stale pid=\(proc.processIdentifier)", level: "WARN")
+                proc.terminate()
+            }
+            self.daemonProcess = nil
+            self.removeStaleSocket()
+            self.recordRestartFailure(message)
+        }
+    }
+
+    private func sendSessionStart(language: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        client.send(cmd: "session_start", extra: ["language": language]) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success:
+                    self.state = .listening
+                    completion(.success(()))
+                case let .failure(error):
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
     private func ensureDaemonReady(completion: @escaping (Result<Void, Error>) -> Void) {
         let deadline = Date().addingTimeInterval(120)
         if FileManager.default.fileExists(atPath: ProjectPaths.socketPath.path) {
@@ -209,6 +279,9 @@ final class DaemonManager {
         task.environment = env
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice
+        task.terminationHandler = { [weak self] process in
+            self?.handleDaemonTermination(process)
+        }
 
         do {
             try task.run()
@@ -217,6 +290,15 @@ final class DaemonManager {
             completion(nil)
         } catch {
             completion(error)
+        }
+    }
+
+    private func handleDaemonTermination(_ process: Process) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let daemonProcess = self.daemonProcess, daemonProcess === process else { return }
+            guard !self.isShuttingDown else { return }
+            self.markDaemonFailed("asr_daemon exited unexpectedly status=\(process.terminationStatus)")
         }
     }
 

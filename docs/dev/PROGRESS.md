@@ -6,15 +6,14 @@
 
 ## Current phase
 
-**v0.1.x 开源基线** — P0 完成；**全局 ⌥Z Toggle**；设置页（语言/模型/听写参数）；README 中英双语；CI 冒烟；2026-06-12 P0 review hardening 已落地
+**v0.1.x 开源基线** — P0 完成；**全局 ⌥Z Toggle**；设置页（语言/模型/听写参数）；README 中英双语；CI 冒烟；2026-06-12 P0 review hardening 与 P1-1 daemon 自愈已落地
 
 ## Next actions（P1 候选）
 
-1. Daemon 崩溃自愈 + IPC send 失败检测
-2. 长句 partial 推理上限，避免 O(n²) 拖垮 live 体验
-3. 注入挪到后台串行队列，并加入听写中用户输入冲突保护
-4. 首次模型下载进度反馈
-5. 撤销上一句热键（候选：⌥⇧Z）
+1. 长句 partial 推理上限，避免 O(n²) 拖垮 live 体验
+2. 注入挪到后台串行队列，并加入听写中用户输入冲突保护
+3. 首次模型下载进度反馈
+4. 撤销上一句热键（候选：⌥⇧Z）
 
 ---
 
@@ -30,6 +29,7 @@
 | 稳定签名 + warmUp | ✅ | `macosAsr Local`、菜单四态 |
 | 设置页（语言） | ✅ | Application Support `config.json` |
 | P0 review hardening | ✅ | 移除本机模型路径；Quit bounded shutdown；修正 utterance_id；删空实验目录 |
+| P1-1 daemon 自愈 | ✅ | daemon 退出/send 失败进入 `⚠️ ASR`；错误态可重启；连续失败限流 |
 | v0.1.0 开源准备 | ✅ | LICENSE、pin deps、CI、双语 README |
 | 移除 xcodeproj | ✅ | 仅 swiftc 构建 |
 
@@ -56,7 +56,7 @@ Quit（⌘Q）关闭 App **并** shutdown daemon。
 | ASR 模型 | Qwen3-ASR-0.6B | Settings…；默认 `mlx-community/Qwen3-ASR-0.6B-8bit`，可选 `mlx-community/Qwen3-ASR-1.7B-8bit` |
 | 触发方式 | Fn+V PTT（P1） | **⌥Z Toggle**（全局 + 菜单）；菜单 Start/Stop 仍可用 |
 | 全局热键权限 | 输入监控 | **输入监控** + **辅助功能**（吞 ⌥Z 防 Ω） |
-| Daemon 生命周期 | 常驻 | App 启动 warm；**Quit 时 shutdown**；退出最多等待约 3.5s 后 TERM/KILL 兜底 |
+| Daemon 生命周期 | 常驻 | App 启动 warm；异常退出/IPC 断开进入 `⚠️ ASR`；错误态可重启；**Quit 时 shutdown**；退出最多等待约 3.5s 后 TERM/KILL 兜底 |
 | 构建 | — | `swiftc` + `build_macapp.sh`（无 `.xcodeproj`） |
 
 ---
@@ -70,5 +70,6 @@ Quit（⌘Q）关闭 App **并** shutdown daemon。
 | 2026-05-22+ | 删 xcodeproj，文档与 PROGRESS 同步 |
 | 2026-05-22+ | 全局 **⌥Z** Toggle（`CGEventTap`）；README / SDD 同步 |
 | 2026-06-12 | P0 review hardening：模型 preset 去本机路径、Quit 退出兜底、`utterance_id` 语义修正、删除空实验目录 |
+| 2026-06-12 | P1-1 daemon 自愈：`terminationHandler`、send/read failure 回调、错误态重启与限流 |
 
 Agent 交接归档见 [`archive/AGENT_HANDOFF.md`](./archive/AGENT_HANDOFF.md)。

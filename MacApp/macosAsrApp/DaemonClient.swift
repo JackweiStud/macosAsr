@@ -18,6 +18,7 @@ final class DaemonClient {
     private let writeQueue = DispatchQueue(label: "com.macosasr.daemon.write")
     private var lineBuffer = ""
     var onEvent: ((DaemonEvent) -> Void)?
+    var onConnectionFailure: ((Error) -> Void)?
 
     deinit {
         disconnect()
@@ -29,6 +30,10 @@ final class DaemonClient {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        var noSigPipe: Int32 = 1
+        if setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) != 0 {
+            AppLogger.log("daemon_client SO_NOSIGPIPE setup failed errno=\(errno)", level: "WARN")
         }
 
         var addr = sockaddr_un()
@@ -65,27 +70,60 @@ final class DaemonClient {
     }
 
     func disconnect() {
-        readSource?.cancel()
-        readSource = nil
-        if socketFD >= 0 {
+        if let source = readSource {
+            readSource = nil
+            source.cancel()
+        } else if socketFD >= 0 {
             close(socketFD)
-            socketFD = -1
         }
+        socketFD = -1
         lineBuffer = ""
     }
 
-    func send(cmd: String, extra: [String: Any] = [:]) {
+    func send(
+        cmd: String,
+        extra: [String: Any] = [:],
+        completion: ((Result<Void, Error>) -> Void)? = nil
+    ) {
         var payload: [String: Any] = ["protocol": 1, "cmd": cmd]
         extra.forEach { payload[$0.key] = $0.value }
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               var line = String(data: data, encoding: .utf8)
-        else { return }
+        else {
+            let error = NSError(domain: "DaemonClient", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "failed to serialize daemon command",
+            ])
+            completion?(.failure(error))
+            return
+        }
         line.append("\n")
         let fd = socketFD
-        writeQueue.async {
-            line.withUTF8 { raw in
-                _ = write(fd, raw.baseAddress!, raw.count)
+        let lineByteCount = line.utf8.count
+        guard fd >= 0 else {
+            let error = NSError(domain: "DaemonClient", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "daemon socket is not connected",
+            ])
+            reportConnectionFailure(error)
+            completion?(.failure(error))
+            return
+        }
+        writeQueue.async { [weak self] in
+            guard let self else { return }
+            let writeResult = line.withUTF8 { raw in
+                write(fd, raw.baseAddress!, raw.count)
             }
+            if writeResult < 0 || writeResult != lineByteCount {
+                let err = errno
+                let error = POSIXError(POSIXErrorCode(rawValue: err) ?? .EIO)
+                AppLogger.log(
+                    "daemon_client_send_failed cmd=\(cmd) bytes=\(lineByteCount) wrote=\(writeResult) errno=\(err)",
+                    level: "ERROR"
+                )
+                self.reportConnectionFailure(error)
+                completion?(.failure(error))
+                return
+            }
+            completion?(.success(()))
         }
     }
 
@@ -111,7 +149,11 @@ final class DaemonClient {
                 ])))
             }
         }
-        send(cmd: "ping")
+        send(cmd: "ping") { result in
+            if case let .failure(error) = result {
+                finish(.failure(error))
+            }
+        }
         DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
             finish(.failure(NSError(domain: "DaemonClient", code: 3, userInfo: [
                 NSLocalizedDescriptionKey: "ping timeout",
@@ -122,7 +164,20 @@ final class DaemonClient {
     private func readAvailable() {
         var chunk = [UInt8](repeating: 0, count: 4096)
         let n = read(socketFD, &chunk, chunk.count)
-        guard n > 0 else { return }
+        guard n > 0 else {
+            let error: Error
+            if n == 0 {
+                error = NSError(domain: "DaemonClient", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey: "daemon socket closed",
+                ])
+            } else {
+                error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            AppLogger.log("daemon_client_read_failed n=\(n)", level: "ERROR")
+            disconnect()
+            reportConnectionFailure(error)
+            return
+        }
         lineBuffer.append(String(decoding: chunk.prefix(n), as: UTF8.self))
         while let range = lineBuffer.range(of: "\n") {
             let line = String(lineBuffer[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -135,6 +190,12 @@ final class DaemonClient {
             DispatchQueue.main.async { [weak self] in
                 self?.onEvent?(event)
             }
+        }
+    }
+
+    private func reportConnectionFailure(_ error: Error) {
+        DispatchQueue.main.async { [weak self] in
+            self?.onConnectionFailure?(error)
         }
     }
 }

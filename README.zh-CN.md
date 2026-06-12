@@ -271,6 +271,7 @@ tail -20 log/daemon.log
 | 菜单栏无 🎤 ASR | 系统设置 → 控制中心 → 关闭菜单栏「自动隐藏」 |
 | 辅助功能反复失效 | 确认 build 输出 `Signed with: macosAsr Local`；删旧条目重授权 |
 | 一直 ⏳ ASR | 等 ~30s；看 `log/daemon.log` 是否模型加载失败 |
+| 出现 ⚠️ ASR | daemon 异常退出或 IPC 断开；点菜单 **Restart ASR Daemon**，或按 **⌥Z** 触发重启；看 `log/macapp.log` |
 | Live 无文字 | 确认 `trusted=true`（macapp.log）；备忘录在前台再点 Start |
 | **⌥Z** 无反应（菜单可用） | 开启 **输入监控**；Quit 后重启；查看 macapp.log 是否有 `hotkey_event_tap_started` |
 | 按 **⌥Z** 出现 **Ω** | rebuild 最新版（会吞掉 ⌥Z）；确认辅助功能已 ON |

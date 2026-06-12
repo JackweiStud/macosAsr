@@ -271,6 +271,7 @@ tail -20 log/daemon.log
 | No 🎤 ASR in menu bar | System Settings → Control Center → disable “Automatically hide and show the menu bar” |
 | Accessibility keeps breaking | Confirm build says `Signed with: macosAsr Local`; remove old entry and re-grant |
 | Stuck on ⏳ ASR | Wait ~30s; check `log/daemon.log` for model load errors |
+| ⚠️ ASR appears | The daemon exited or IPC broke; click **Restart ASR Daemon**, or press **⌥Z** to respawn; check `log/macapp.log` |
 | Live but no text | Check `trusted=true` in macapp.log; bring Notes to front before Start |
 | **⌥Z** does nothing (menu works) | Grant **Input Monitoring**; Quit and relaunch; check `hotkey_event_tap_started` in macapp.log |
 | **Ω** appears when pressing ⌥Z | Rebuild latest app (tap should consume ⌥Z); confirm Accessibility is ON |

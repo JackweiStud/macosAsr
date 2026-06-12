@@ -171,8 +171,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case let .error(msg):
             button.title = "⚠️ ASR"
             statusMenuItem?.title = "Status: Error"
-            startStopMenuItem?.title = "Start Live Dictation"
-            startStopMenuItem?.isEnabled = false
+            startStopMenuItem?.title = "Restart ASR Daemon"
+            startStopMenuItem?.isEnabled = true
             AppLogger.log("daemon_error_state \(msg)", level: "ERROR")
         }
     }
@@ -192,8 +192,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // 把焦点还给目标 App，让 CGEvent 注入对（macOS 14+ API）
             preDictationApp?.activate()
+        case .error:
+            AppLogger.log("daemon_restart_requested_from_error")
+            DaemonManager.shared.warmUp()
         default:
-            // loading/idle/error：菜单本应已禁用，理论上走不到
+            // loading/idle：菜单本应已禁用，理论上走不到
             return
         }
     }

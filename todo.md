@@ -71,7 +71,7 @@
 
 ## P1 — 可靠性核心（常驻工具的底线）
 
-### [P1-1] daemon 崩溃自愈 + send 失败检测
+### [P1-1] daemon 崩溃自愈 + send 失败检测 ✅代码完成 / 手动验收待跑
 - **位置**：`MacApp/macosAsrApp/DaemonManager.swift`（进程生命周期、状态机）、`MacApp/macosAsrApp/DaemonClient.swift:77-90`（`send` 是 fire-and-forget，write 失败连日志都没有）。
 - **根因**：Python 进程 OOM / MLX 报错退出后，App 的 `state` 仍停在 `.ready`/`.listening`，用户按 ⌥Z 没任何反应也没报错——核心路径静默失效。
 - **修法**：
@@ -79,6 +79,7 @@
   2. `DaemonClient.send` 的 `write` 返回值 `< 0` 时记日志并回调一个失败通知（让 `DaemonManager` 感知连接已断）。
   3. `.error` 状态下用户再次触发 ⌥Z（`AppDelegate.toggleLiveDictation`）时，自动走一次 `warmUp()`（respawn），而不是静默 return。注意避免无限重启风暴：加重启计数 + 退避（如连续失败 3 次后停止并在菜单显示明确错误）。
 - **验证**：App ready 后 `pkill -9 -f asr_daemon` → 菜单栏应在数秒内变 `⚠️ ASR`；再按 ⌥Z → 应自动 respawn 并恢复到可用，或在达到重试上限后给明确提示。`tail log/macapp.log` 有 `daemon_state ... -> error` 与 respawn 记录。
+- **执行记录**：`DaemonClient.send` 已增加 completion 和 send/read 失败回调，并设置 `SO_NOSIGPIPE`；`DaemonManager` 已增加 `terminationHandler`、统一 `markDaemonFailed`、stale socket 清理、连续失败 3 次限流；`AppDelegate` 的错误态菜单改为 `Restart ASR Daemon`，按 ⌥Z/菜单可触发 `warmUp()`。已通过 `python3 -m unittest discover -s tests`、`./scripts/ci_smoke.sh`、`./scripts/build_macapp.sh`。未跑真实 GUI `pkill -9 -f asr_daemon` 手动验收。
 
 ### [P1-2] 首次下载进度反馈
 - **位置**：`MacApp/macosAsrApp/DaemonManager.swift`（菜单 title 状态）、`asr_daemon/__main__.py`（当前把 HF 进度条过滤掉了：`_log_filter` + `HF_HUB_DISABLE_PROGRESS_BARS=1`）、`MacApp/macosAsrApp/AppDelegate.swift:145-178`（`applyDaemonState` 四态显示）。
