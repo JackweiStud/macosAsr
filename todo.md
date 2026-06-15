@@ -92,7 +92,7 @@
 - **位置**：`asr/partial_engine.py:318-330`，`_process_active_utterance()` 里 `stream_utterance_text(self._model, utterance.blocks, cfg)`。
 - **根因**：每 0.5s 调一次 partial，每次都对**整句的全量音频**重新推理（不是增量）。说到第 15s 时每次 partial 要推理 15s 音频，推理耗时一旦超过 `partial_interval_seconds`，"live 感"直接崩，且 GPU 在长句期间满转。
 - **修法（最简，不动 mlx_audio）**：utterance 累计时长超过阈值（建议 8s，做成 `AsrConfig` 字段如 `partial_max_audio_seconds: float = 8.0`）后**停发 partial**，只等 VAD 触发 final 修正。屏幕上此时已有足够多的字，final 会一次性纠正。
-- **修法（可选进阶，风险更高，需另立条目评估）**：滑动窗口 partial——只对最近 N 秒音频做 partial，配合 `InjectionStateMachine` 的前缀差分。**本次不做**，除非 P1-3 简化版实测仍不够。
+- **修法（可选进阶，风险更高，需另立条目评估）**：滑动窗口 partial——只对最近 N 秒音频做 partial，配合 `InjectionStateMachine` 的前缀差分。**本次不做**，除非 P1-3 简化版实测仍然不够。
 - **验证**：连续说 20s 长句，观察 partial 在 8s 后停止刷新、final 正常落字；`daemon.log` 里 partial 推理耗时不再随句长无限增长。
 - **执行记录**：新增 `AsrConfig.partial_max_audio_seconds = 8.0`，`_process_active_utterance()` 超过窗口后跳过 partial 推理但保留 final；新增测试覆盖“超过窗口后不再调用 `stream_utterance_text`，final 仍输出”。已通过 `python3 -m unittest discover -s tests`。未跑真实 20s 长句手动验收。
 

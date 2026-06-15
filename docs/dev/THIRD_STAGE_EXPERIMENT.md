@@ -1,41 +1,41 @@
-# Third Stage Experiment: VAD, Latency, Stop Safety
+# 第三阶段实验：VAD、延迟、停止安全
 
 Branch: `codex/asr-vad-latency-sequencing`
 
-This branch is an experience branch, not a mainline merge candidate yet. It targets three user-visible problems:
+这个分支是体验分支，还不是主干合并候选。它针对 3 个用户可感知问题：
 
-1. Long final segments caused by VAD treating background noise as continued speech.
-2. Lack of measurable latency data for ASR partial/final performance.
-3. Unsafe timing after Stop, where a late final may arrive after the user has started editing.
+1. VAD 把背景噪声误判为持续说话，导致 final 片段过长。
+2. 没有可量化的 ASR partial/final 延迟数据。
+3. Stop 之后时序不安全，用户开始编辑后，晚到的 final 还可能覆盖输入。
 
-## What Changed
+## 改了什么
 
-- VAD now uses a relative silence check inside an active utterance. If background noise remains above the absolute threshold but is clearly lower than the recent speech peak, it can count as silence and end the sentence.
-- `daemon.log` now includes privacy-safe metrics:
+- VAD 现在在一个正在进行的 utterance 内，会额外做相对静音判断。如果背景噪声仍高于绝对阈值，但明显低于最近说话峰值，也可以算作静音，从而结束这句话。
+- `daemon.log` 现在会输出隐私安全的指标：
   - `utterance_started`
   - `partial_metrics`
   - `final_metrics`
-- Stop now enters a `stoppingAwaitingFinal` state. If the user types or clicks before the daemon sends `session_stopped`, the app clears pending ASR text and drops the late final instead of mutating the user's new edits.
+- Stop 现在会进入 `stoppingAwaitingFinal` 状态。如果 daemon 还没发出 `session_stopped`，用户就先打字或点击，应用会清掉待处理的 ASR 文本，并丢弃晚到的 final，而不是去改写用户新输入的内容。
 
-The logs include lengths, timings, and reasons only. They do not include transcript text.
+日志只包含长度、耗时和原因，不包含转写文本。
 
-## How To Test
+## 怎么测试
 
-Run the branch build:
+运行这个分支的构建：
 
 ```bash
 open --env MACOSASR_ROOT=/Users/jackwl/Code/macosAsr "/Users/jackwl/Code/macosAsr/MacApp/build/macosAsrApp.app"
 ```
 
-### Test 1: VAD Sentence Split
+### 测试 1：VAD 断句
 
-1. Start dictation with `⌥Z`.
-2. Say one short sentence.
-3. Pause for about 2 seconds.
-4. Say a second short sentence.
-5. Stop with `⌥Z`.
+1. 按 `⌥Z` 开始听写。
+2. 说一句短句。
+3. 停顿大约 2 秒。
+4. 再说第二句短句。
+5. 再按 `⌥Z` 停止。
 
-Expected difference: final text should arrive in shorter chunks more often, instead of one long combined final.
+预期变化：final 更容易按短块到达，而不是两句被合成一大段。
 
 Check:
 
@@ -43,15 +43,15 @@ Check:
 tail -n 80 log/daemon.log | rg "utterance_started|final_metrics"
 ```
 
-Useful signal:
+看这些信号：
 
-- More `final_metrics` rows for separate spoken sentences.
-- Shorter `utterance_seconds` per final.
-- Fewer very long `final_len` values for normal short sentences.
+- 独立句子会对应更多 `final_metrics` 行。
+- 每个 final 的 `utterance_seconds` 更短。
+- 普通短句出现超长 `final_len` 的情况更少。
 
-### Test 2: Latency Metrics
+### 测试 2：延迟指标
 
-Speak a 10-20 second mixed sentence and stop.
+说一段 10 到 20 秒的混合长句，然后停止。
 
 Check:
 
@@ -59,20 +59,20 @@ Check:
 tail -n 120 log/daemon.log | rg "partial_metrics|final_metrics"
 ```
 
-Useful signal:
+看这些信号：
 
-- `first_partial_ms` tells how long the first visible text took.
-- `partial_ms` tells whether live refresh is getting expensive.
-- `final_ms` tells how long final correction took.
+- `first_partial_ms` 表示第一段可见文本出来用了多久。
+- `partial_ms` 表示实时刷新是否开始变贵。
+- `final_ms` 表示 final 修正用了多久。
 
-### Test 3: Stop Then Edit
+### 测试 3：Stop 后再编辑
 
-1. Start dictation.
-2. Speak a sentence long enough to produce partial text.
-3. Press `⌥Z` to stop.
-4. Immediately type a few characters or click elsewhere before final arrives.
+1. 开始听写。
+2. 说一句足够长、能产出 partial 的句子。
+3. 按 `⌥Z` 停止。
+4. 在 final 到来前，立刻输入几个字符，或者点击别处。
 
-Expected difference: the late final should not backspace or rewrite your manual edits.
+预期变化：晚到的 final 不应该回退删除或改写你的手动编辑。
 
 Check:
 
@@ -80,14 +80,14 @@ Check:
 tail -n 80 log/macapp.log | rg "late_final|injection_pending"
 ```
 
-Useful signal:
+看这些信号：
 
 - `late_final_will_be_dropped_after_user_input`
 - `late_final_dropped_after_user_input len=...`
 
-## Validation
+## 验证
 
-Automated checks run for this branch:
+这个分支已经跑过的自动检查：
 
 ```bash
 python3 -m unittest discover -s tests
