@@ -45,7 +45,9 @@ class _UtteranceState:
     utterance_id: int
     blocks: list[AudioBlock]
     started_at: float
+    speech_started_at: float
     last_voice_at: float
+    voice_peak_rms: float
     silence_run_seconds: float = 0.0
     last_partial_at: float = 0.0
     partial_count: int = 0
@@ -266,7 +268,7 @@ class PartialEngine:
                     self._pre_roll.clear()
                     self._voiced_run_seconds = 0.0
                 if utterance is not None:
-                    self._finalize_utterance(utterance, force_short=True)
+                    self._finalize_utterance(utterance, force_short=True, reason="flush")
                 done.set()
 
     def _calibrate_noise(self, cfg: AsrConfig) -> None:
@@ -338,16 +340,29 @@ class PartialEngine:
                                 utterance_id=self._utterance_id,
                                 blocks=list(self._pre_roll),
                                 started_at=self._pre_roll[0].captured_at if self._pre_roll else block.captured_at,
+                                speech_started_at=block.captured_at,
                                 last_voice_at=block.captured_at,
+                                voice_peak_rms=block_rms,
                             )
                             self._voiced_run_seconds = 0.0
-                            logger.debug("utterance started")
+                            logger.info(
+                                "utterance_started u=%s start_rms=%.4f threshold=%.4f relative_ratio=%.2f",
+                                self._utterance_id,
+                                block_rms,
+                                self._active_threshold,
+                                cfg.vad_relative_silence_ratio,
+                            )
                     else:
                         self._voiced_run_seconds = 0.0
                     continue
 
                 utterance.blocks.append(block)
-                if block_rms >= self._active_threshold:
+                relative_voice_threshold = max(
+                    self._active_threshold,
+                    utterance.voice_peak_rms * cfg.vad_relative_silence_ratio,
+                )
+                if block_rms >= relative_voice_threshold:
+                    utterance.voice_peak_rms = max(utterance.voice_peak_rms, block_rms)
                     utterance.last_voice_at = block.captured_at
                     utterance.silence_run_seconds = 0.0
                 else:
@@ -377,12 +392,31 @@ class PartialEngine:
         ):
             partial_call_at = time.perf_counter()
             partial_text = stream_utterance_text(self._model, utterance.blocks, cfg)
+            partial_ms = (time.perf_counter() - partial_call_at) * 1000.0
             utterance.last_partial_at = partial_call_at
-            if partial_text and partial_text != utterance.last_partial_text:
+            should_emit = bool(partial_text and partial_text != utterance.last_partial_text)
+            if should_emit:
                 utterance.partial_count += 1
                 utterance.last_partial_text = partial_text
                 if utterance.first_partial_at is None:
                     utterance.first_partial_at = partial_call_at
+            first_partial_ms = (
+                (utterance.first_partial_at - utterance.speech_started_at) * 1000.0
+                if utterance.first_partial_at is not None
+                else -1.0
+            )
+            logger.info(
+                "partial_metrics u=%s emitted=%s utterance_seconds=%.2f partial_ms=%.1f "
+                "first_partial_ms=%.1f partial_count=%s text_len=%s",
+                utterance.utterance_id,
+                should_emit,
+                utterance_seconds,
+                partial_ms,
+                first_partial_ms,
+                utterance.partial_count,
+                len(partial_text),
+            )
+            if should_emit:
                 self._emit_partial(utterance.utterance_id, partial_text)
 
         if utterance.silence_run_seconds >= end_silence_threshold:
@@ -392,7 +426,7 @@ class PartialEngine:
                 self._voiced_run_seconds = 0.0
             if utterance_seconds < cfg.vad_min_utterance_seconds:
                 return
-            self._finalize_utterance(utterance)
+            self._finalize_utterance(utterance, reason="silence")
             return
 
         if cfg.vad_max_utterance_seconds > 0 and utterance_seconds >= cfg.vad_max_utterance_seconds:
@@ -400,21 +434,40 @@ class PartialEngine:
                 self._utterance = None
                 self._pre_roll.clear()
                 self._voiced_run_seconds = 0.0
-            self._finalize_utterance(utterance)
+            self._finalize_utterance(utterance, reason="max_utterance")
 
     def _emit_partial(self, uid: int, text: str) -> None:
         logger.debug("partial u=%s len=%s", uid, len(text))
         self._callback.on_partial(uid, text)
 
-    def _finalize_utterance(self, utterance: _UtteranceState, *, force_short: bool = False) -> None:
+    def _finalize_utterance(
+        self,
+        utterance: _UtteranceState,
+        *,
+        force_short: bool = False,
+        reason: str = "silence",
+    ) -> None:
         cfg = self._config
         assert self._model is not None
         utterance_seconds = sum(len(b.samples) for b in utterance.blocks) / float(cfg.sample_rate)
         if not force_short and utterance_seconds < cfg.vad_min_utterance_seconds:
             return
 
+        final_start = time.perf_counter()
         final_text = generate_utterance_text(self._model, utterance.blocks, cfg)
+        final_ms = (time.perf_counter() - final_start) * 1000.0
         uid = utterance.utterance_id
+        logger.info(
+            "final_metrics u=%s reason=%s utterance_seconds=%.2f final_ms=%.1f "
+            "partial_count=%s final_len=%s silence_seconds=%.2f",
+            uid,
+            reason,
+            utterance_seconds,
+            final_ms,
+            utterance.partial_count,
+            len(final_text),
+            utterance.silence_run_seconds,
+        )
 
         if final_text and should_drop_final_text(final_text, cfg):
             reason = "filler_or_short"

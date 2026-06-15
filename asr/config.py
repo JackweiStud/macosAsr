@@ -21,6 +21,7 @@ class AsrConfig:
 
     vad_rms_threshold: float = 0.0
     vad_end_silence_seconds: float = 1.50
+    vad_relative_silence_ratio: float = 0.35
     vad_start_speech_seconds: float = 0.20
     vad_min_utterance_seconds: float = 0.60
     vad_pre_roll_seconds: float = 0.50
@@ -50,6 +51,7 @@ class AsrConfig:
             f"partial_max_audio={self.partial_max_audio_seconds:.2f}s "
             f"vad_rms_threshold={self.vad_rms_threshold:.4f} "
             f"vad_end_silence={self.vad_end_silence_seconds:.2f}s "
+            f"vad_relative_silence_ratio={self.vad_relative_silence_ratio:.2f} "
             f"vad_start_speech={self.vad_start_speech_seconds:.2f}s "
             f"vad_min_utterance={self.vad_min_utterance_seconds:.2f}s "
             f"vad_pre_roll={self.vad_pre_roll_seconds:.2f}s "

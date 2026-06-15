@@ -22,6 +22,7 @@ class AsrConfigTests(unittest.TestCase):
         self.assertIn("partial_min_audio=0.60s", summary)
         self.assertIn("partial_max_audio=8.00s", summary)
         self.assertIn("vad_end_silence=1.50s", summary)
+        self.assertIn("vad_relative_silence_ratio=0.35", summary)
         self.assertIn("vad_start_speech=0.20s", summary)
         self.assertIn("vad_min_utterance=0.60s", summary)
         self.assertIn("vad_pre_roll=0.50s", summary)
