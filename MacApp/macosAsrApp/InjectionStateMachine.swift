@@ -4,23 +4,59 @@ import Foundation
 /// 方案 A：前缀差分注入——只退格/重打与上次不同的后缀，减少闪烁。
 final class InjectionStateMachine {
     private let injector: TextInjecting
+    private let injectionQueue = DispatchQueue(label: "com.macosasr.injection")
+    private let queueKey = DispatchSpecificKey<Void>()
     /// 当前已注入但尚未提交（final）的 pending 文字
-    private(set) var pendingText: String = ""
+    private var pendingText: String = ""
 
-    var pendingLen: Int { pendingText.count }
+    var pendingLen: Int {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return pendingText.count
+        }
+        return injectionQueue.sync { pendingText.count }
+    }
 
     init(injector: TextInjecting) {
         self.injector = injector
+        injectionQueue.setSpecific(key: queueKey, value: ())
     }
 
     func onPartial(_ text: String) {
+        runOnInjectionQueue {
+            self.applyPartial(text)
+        }
+    }
+
+    func onFinal(_ text: String) {
+        runOnInjectionQueue {
+            self.applyFinal(text)
+        }
+    }
+
+    func onFiltered() {
+        runOnInjectionQueue {
+            self.applyFiltered()
+        }
+    }
+
+    func onSessionStopped() {
+        runOnInjectionQueue {
+            self.pendingText = ""
+        }
+    }
+
+    private func runOnInjectionQueue(_ work: @escaping () -> Void) {
+        injectionQueue.async(execute: work)
+    }
+
+    private func applyPartial(_ text: String) {
         let (backspaceCount, suffix) = diff(old: pendingText, new: text)
         if backspaceCount > 0 { injector.backspace(count: backspaceCount) }
         if !suffix.isEmpty { injector.typeText(suffix) }
         pendingText = text
     }
 
-    func onFinal(_ text: String) {
+    private func applyFinal(_ text: String) {
         let (backspaceCount, suffix) = diff(old: pendingText, new: text)
         if backspaceCount > 0 { injector.backspace(count: backspaceCount) }
         if !suffix.isEmpty { injector.typeText(suffix) }
@@ -28,12 +64,8 @@ final class InjectionStateMachine {
         AppLogger.log("final len=\(text.count)")
     }
 
-    func onFiltered() {
+    private func applyFiltered() {
         if pendingLen > 0 { injector.backspace(count: pendingLen) }
-        pendingText = ""
-    }
-
-    func onSessionStopped() {
         pendingText = ""
     }
 

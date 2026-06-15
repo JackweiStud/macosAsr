@@ -33,6 +33,19 @@ echo "PASS compile"
 echo "== P0c-2: state machine + log self-test =="
 /usr/bin/swift MacApp/Tools/p0c_selftest.swift
 
+echo "== P2-3: production injection queue self-test =="
+swiftc -Onone \
+  -target arm64-apple-macosx15.0 \
+  -framework Cocoa \
+  -framework ApplicationServices \
+  MacApp/macosAsrApp/ProjectPaths.swift \
+  MacApp/macosAsrApp/AppLogger.swift \
+  MacApp/macosAsrApp/TextInjector.swift \
+  MacApp/macosAsrApp/InjectionStateMachine.swift \
+  MacApp/Tools/injection_queue_selftest.swift \
+  -o /tmp/macosAsr_injection_queue_selftest
+/tmp/macosAsr_injection_queue_selftest
+
 echo ""
 echo "All automated P0c checks passed."
 echo "Build .app: ./scripts/build_macapp.sh"

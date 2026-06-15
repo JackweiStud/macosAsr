@@ -114,11 +114,12 @@
 - **修法**：记录上一句 final 的字符数；新热键触发时 `injector.backspace(count: lastFinalLen)` 并清除记录。注意与 P2-1 的输入保护协同（用户已动过光标则不应盲删）。
 - **验证**：说一句→落字→按 ⌥⇧Z→上一句被精确删除，不误删其它内容。
 
-### [P2-3] 注入挪出主线程
+### [P2-3] 注入挪出主线程 ✅完成
 - **位置**：`MacApp/macosAsrApp/DaemonClient.swift:135`（事件 dispatch 到 main）→ `LiveDictationController.handle` → `InjectionStateMachine` → `TextInjector.typeText`（`TextInjector.swift:36-50`，同步循环 + 每字符 `usleep(400)`）。
 - **根因**：长 partial 的注入在主线程同步跑，每字符 400µs，长文本会卡 UI / 菜单无响应。
 - **修法**：把注入放到专用串行后台队列（`DispatchQueue(label: "com.macosasr.injection")`），保证顺序性。注意 `pendingText` 状态的线程安全（注入队列单线程访问即可，但 partial 事件来自 main，需把状态变更也收敛到该队列）。
 - **验证**：注入长文本时菜单栏/UI 仍可响应；文字顺序无错乱。
+- **执行记录**：`InjectionStateMachine` 已增加 `com.macosasr.injection` 专用串行队列；`onPartial/onFinal/onFiltered/onSessionStopped` 只负责入队，退格/打字与 `pendingText` 读写都在注入队列执行；`pendingLen` 改为队列安全读取。新增源码护栏和生产状态机自测，防止事件入口重新同步调用 `injector` 或回到主线程注入。已通过 `python3 -m unittest tests/test_p2_injection_queue_guardrails.py`、`./scripts/test_p0c.sh`、`./scripts/ci_smoke.sh`、`./scripts/build_macapp.sh`。
 
 ### [P2-4] 麦克风常开 → 隐私观感问题（按需做）
 - **位置**：`asr_daemon/server.py:77`（daemon 启动即 `start_background_mic()`）、`asr/partial_engine.py`（`start_background_mic` / `stop` / 校准）。
