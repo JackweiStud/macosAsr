@@ -62,7 +62,7 @@
 - **位置**：`asr/partial_engine.py:349-353`，`_emit_partial()`。
 - **根因**：每发一次 partial 就 `self._utterance_id += 1`。同一句话的多个 partial 拿到递增 ID（1,2,3...），final 拿到最后一个值。该字段语义本应是"第几句话"，现在实际是"第几次刷新"。Swift 端 `LiveDictationController.handle`（`LiveDictationController.swift:44-65`）根本不消费 `utterance_id`，所以目前没炸——但留着一个语义错误的协议字段是坑，未来谁基于它做"按句替换/撤销"必踩。
 - **修法（二选一，倾向 A）**：
-  - **A（修对）**：把 `self._utterance_id += 1` 移到"一句话开始"的位置（`_drain_audio_blocks` 里新建 `_UtteranceState` 时 +1），partial/final 复用同一 ID。这样 ID 真正标识句子，为 P2-2"撤销上一句"打基础。
+  - **A（修对）**：把 `self._utterance_id += 1` 移到"一句话开始"的位置（`_drain_audio_blocks` 里新建 `_UtteranceState` 时 +1），partial/final 复用同一 ID。这样 ID 真正标识句子，保留协议语义正确性；P2-2 撤销功能后续已决定不采用。
   - **B（删除）**：若短期不做按句功能，直接从 IPC 事件 payload（`session.py` 的 `on_partial/on_final/on_filtered`）中移除 `utterance_id` 字段，Swift 端 `DaemonEvent` 同步删。
 - **验证**：`tests/` 下加/改断言：同一 utterance 的 partial 与其 final 携带相同 `utterance_id`（方案 A）；或事件无该字段（方案 B）。`ci_smoke.sh` 通过。
 - **执行记录**：采用方案 A。`utterance_id` 在 `_UtteranceState` 创建时递增，同一句 partial/final 复用同一 ID；新增双 partial + final 回归测试。`ci_smoke.sh` 通过。
@@ -109,11 +109,12 @@
 - **验证**：听写中途手动敲几个字 → 后续识别文字应追加在用户输入之后，不删用户的字。
 - **执行记录**：`TextInjector` 给本 App 注入的 CGEvent 写入 `eventSourceUserData` 标记；`GlobalHotkeyMonitor` 扩展监听 keyDown / mouseDown，忽略自注入事件和 ⌥Z 本身，发现用户真实输入时通知 `LiveDictationController`；`InjectionStateMachine.onUserInputInterrupted()` 只清空 pending、不退格，后续 partial/final 不再回删用户刚输入的内容。新增 Swift 行为自测和源码护栏。已通过 `python3 -m unittest discover -s tests`、`./scripts/test_p0c.sh`。
 
-### [P2-2] 撤销上一句（建议 ⌥⇧Z）
+### [P2-2] 撤销上一句（⌥⇧Z）❌不采用 / 已删除候选
 - **位置**：新增热键逻辑（`GlobalHotkeyMonitor` 已有 event tap 框架）、`InjectionStateMachine`（已知 pending/上一句长度）。
-- **根因**：ASR 必然出错，错字注入后用户只能手动删。App 本就知道上一句 final 的长度，退格撤销成本极低。**价值远高于 P1 列表里的 PTT**。
-- **修法**：记录上一句 final 的字符数；新热键触发时 `injector.backspace(count: lastFinalLen)` 并清除记录。注意与 P2-1 的输入保护协同（用户已动过光标则不应盲删）。
-- **验证**：说一句→落字→按 ⌥⇧Z→上一句被精确删除，不误删其它内容。
+- **原始动机**：ASR 必然出错，错字注入后用户只能手动删；理论上 App 可以按 final 长度退格。
+- **放弃原因**：实际体验不稳定。当前跨 App 注入方案无法可靠知道目标编辑器的真实光标位置、选区和 undo 栈；按字符数退格会在 ASR/VAD 合并多句、用户移动光标、目标 App 自动改写文本时产生误删。后续即使按句末标点裁剪，也只是补丁，用户心智仍不清楚“撤销的是哪一段”。
+- **决策**：不把 `⌥⇧Z` 撤销上一句作为当前产品功能合入；本轮未提交代码已移除。后续优先优化 ASR 准确率、VAD 分句、用户输入保护和手动编辑安全性。
+- **未来再评估条件**：只有在能通过 Accessibility API 稳定读取目标控件文本/选区，并能在撤销前校验刚插入文本仍位于光标前方时，才重新考虑“精确撤销上一句”。
 
 ### [P2-3] 注入挪出主线程 ✅完成
 - **位置**：`MacApp/macosAsrApp/DaemonClient.swift:135`（事件 dispatch 到 main）→ `LiveDictationController.handle` → `InjectionStateMachine` → `TextInjector.typeText`（`TextInjector.swift:36-50`，同步循环 + 每字符 `usleep(400)`）。
@@ -161,8 +162,8 @@
 1. **P0 全部**（排雷，半天）：P0-1 / P0-2 / P0-3 / P0-4。
 2. **P1-1**（daemon 自愈，可靠性的根）。
 3. **P1-3 + P2-3 + P2-1**（长句性能 + 注入挪线程 + 输入保护，三者关联，一起做）。
-4. **P1-2 + P2-2**（下载进度 + 撤销上一句，补体验断点）。
-5. **P2-4 / P2-5** 按需。
+4. **P1-2**（下载进度，补首次体验断点）。
+5. **P2-5** 按需。
 6. **P3 不做**。
 
 ## 文档同步提醒
