@@ -45,6 +45,12 @@ final class InjectionStateMachine {
         }
     }
 
+    func onUserInputInterrupted() {
+        runOnInjectionQueue {
+            self.applyUserInputInterrupted()
+        }
+    }
+
     private func runOnInjectionQueue(_ work: @escaping () -> Void) {
         injectionQueue.async(execute: work)
     }
@@ -67,6 +73,11 @@ final class InjectionStateMachine {
     private func applyFiltered() {
         if pendingLen > 0 { injector.backspace(count: pendingLen) }
         pendingText = ""
+    }
+
+    private func applyUserInputInterrupted() {
+        pendingText = ""
+        AppLogger.log("injection_pending_discarded_by_user_input")
     }
 
     // MARK: - 差分算法：返回 (需退格数, 需追加的新后缀)

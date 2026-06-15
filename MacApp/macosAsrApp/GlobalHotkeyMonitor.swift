@@ -4,6 +4,7 @@ import Cocoa
 /// Global ⌥Z toggle for Start/Stop live dictation (session-level event tap).
 final class GlobalHotkeyMonitor {
     var onTrigger: (() -> Void)?
+    var onUserInput: (() -> Void)?
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -68,7 +69,12 @@ final class GlobalHotkeyMonitor {
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
         // defaultTap：匹配时 return nil 吞掉事件，避免 ⌥Z 在文本框里输出 Ω。
         // 需要辅助功能（AX）权限；本 App 已要求。
-        let mask = CGEventMask((1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue))
+        let keyDownMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let keyUpMask = CGEventMask(1 << CGEventType.keyUp.rawValue)
+        let leftMouseDownMask = CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
+        let rightMouseDownMask = CGEventMask(1 << CGEventType.rightMouseDown.rawValue)
+        let otherMouseDownMask = CGEventMask(1 << CGEventType.otherMouseDown.rawValue)
+        let mask = keyDownMask | keyUpMask | leftMouseDownMask | rightMouseDownMask | otherMouseDownMask
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -112,18 +118,31 @@ final class GlobalHotkeyMonitor {
 
     /// keyDown：满足 ⌥Z 时触发回调并吞事件；keyUp：仅吞事件，避免 ⌥+Z 的 up 抵达前台 App。
     fileprivate func handleEvent(type: CGEventType, event: CGEvent) -> Bool {
-        guard matchesHotkey(event) else { return false }
+        guard !isOwnInjectedEvent(event) else { return false }
 
-        if type == .keyDown {
-            let now = ProcessInfo.processInfo.systemUptime
-            if now - lastTriggerTime >= debounceInterval {
-                lastTriggerTime = now
-                DispatchQueue.main.async { [weak self] in
-                    self?.onTrigger?()
+        if (type == .keyDown || type == .keyUp) && matchesHotkey(event) {
+            if type == .keyDown {
+                let now = ProcessInfo.processInfo.systemUptime
+                if now - lastTriggerTime >= debounceInterval {
+                    lastTriggerTime = now
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onTrigger?()
+                    }
                 }
             }
+            return true
         }
-        return true
+
+        if type == .keyDown || type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
+            DispatchQueue.main.async { [weak self] in
+                self?.onUserInput?()
+            }
+        }
+        return false
+    }
+
+    private func isOwnInjectedEvent(_ event: CGEvent) -> Bool {
+        event.getIntegerValueField(.eventSourceUserData) == InjectionEventMarker.userData
     }
 
     private func matchesHotkey(_ event: CGEvent) -> Bool {
@@ -147,7 +166,9 @@ final class GlobalHotkeyMonitor {
             return Unmanaged.passUnretained(event)
         }
 
-        if type == .keyDown || type == .keyUp {
+        if type == .keyDown || type == .keyUp
+            || type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
+        {
             if monitor.handleEvent(type: type, event: event) {
                 return nil // 吞掉 ⌥Z，防止文本框出现 Ω
             }

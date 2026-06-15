@@ -18,6 +18,12 @@ final class RecordingInjector: TextInjecting {
 @main
 struct InjectionQueueSelfTest {
     static func main() {
+        testBackgroundInjectionOrdering()
+        testUserInputInterruptClearsPendingWithoutBackspace()
+        print("PASS: P2-3/P2-1 injection queue self-test")
+    }
+
+    private static func testBackgroundInjectionOrdering() {
         let injector = RecordingInjector()
         let stateMachine = InjectionStateMachine(injector: injector)
 
@@ -46,7 +52,37 @@ struct InjectionQueueSelfTest {
             fputs("FAIL: injection ran on main thread\n", stderr)
             exit(1)
         }
+    }
 
-        print("PASS: P2-3 injection queue self-test")
+    private static func testUserInputInterruptClearsPendingWithoutBackspace() {
+        let injector = RecordingInjector()
+        let stateMachine = InjectionStateMachine(injector: injector)
+
+        stateMachine.onPartial("hello")
+        guard stateMachine.pendingLen == 5 else {
+            fputs("FAIL: pending text was not recorded before interrupt\n", stderr)
+            exit(1)
+        }
+
+        stateMachine.onUserInputInterrupted()
+        guard stateMachine.pendingLen == 0 else {
+            fputs("FAIL: pending text was not cleared after user input interrupt\n", stderr)
+            exit(1)
+        }
+
+        stateMachine.onPartial("hello world")
+        guard stateMachine.pendingLen == 11 else {
+            fputs("FAIL: pending text was not updated after interrupt\n", stderr)
+            exit(1)
+        }
+
+        let expected = [
+            "type:hello",
+            "type:hello world",
+        ]
+        guard injector.operations == expected else {
+            fputs("FAIL: user input interrupt caused unsafe rewrite: \(injector.operations)\n", stderr)
+            exit(1)
+        }
     }
 }

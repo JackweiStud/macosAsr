@@ -41,6 +41,11 @@ final class LiveDictationController {
         AppLogger.log("live_dictation_stop")
     }
 
+    func notifyUserInputInterrupted() {
+        guard isListening else { return }
+        stateMachine.onUserInputInterrupted()
+    }
+
     private func handle(_ event: DaemonEvent) {
         switch event.type {
         case "partial":

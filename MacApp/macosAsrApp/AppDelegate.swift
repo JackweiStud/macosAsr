@@ -71,6 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyMonitor.onTrigger = { [weak self] in
             self?.toggleLiveDictation()
         }
+        hotkeyMonitor.onUserInput = { [weak self] in
+            self?.liveDictation.notifyUserInputInterrupted()
+        }
         if !hotkeyMonitor.isInputMonitoringGranted {
             _ = hotkeyMonitor.requestInputMonitoringAccess()
         }

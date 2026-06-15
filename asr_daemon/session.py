@@ -40,6 +40,7 @@ class SessionController(EventCallback):
             self._config.language = language
 
         self._session_id = f"s-{uuid.uuid4().hex[:8]}"
+        self._engine.start_recording()
         self._engine.set_listening(True)
         self._emit(
             {
@@ -58,6 +59,7 @@ class SessionController(EventCallback):
         sid = self._session_id
         self._engine.set_listening(False)
         self._engine.flush_on_stop()
+        self._engine.stop_recording()
         self._session_id = None
         self._emit(
             {
@@ -129,5 +131,6 @@ class SessionController(EventCallback):
             "model": self._config.model,
             "calibrated": self._engine.calibrated,
             "warmed_up": self._engine.warmed_up,
+            "recording_active": self._engine.recording_active,
             "language": self._config.language,
         }

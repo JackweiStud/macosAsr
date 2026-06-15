@@ -154,6 +154,8 @@ Without this, the menu still works; **⌥Z** only works globally after authoriza
 
 While dictating, the menu bar shows **`🟢 Dictating…`**.
 
+After startup calibration, the microphone is closed while idle; the macOS recording indicator should only appear during calibration or active dictation. If you type or click while dictating, the app discards the current uncommitted ASR pending text and only appends afterward, so it does not backspace over what you just entered.
+
 ### 8. (Optional) Desktop shortcut
 
 Skip this if you prefer `./scripts/launch_macapp.sh` only.

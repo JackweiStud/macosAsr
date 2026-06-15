@@ -84,6 +84,7 @@ class PartialEngine:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+        self._stream_lock = threading.Lock()
 
     @property
     def model_loaded(self) -> bool:
@@ -101,6 +102,11 @@ class PartialEngine:
     def active_threshold(self) -> float:
         return self._active_threshold
 
+    @property
+    def recording_active(self) -> bool:
+        with self._stream_lock:
+            return self._stream is not None
+
     def set_listening(self, listening: bool) -> None:
         with self._lock:
             self._listening = listening
@@ -117,56 +123,97 @@ class PartialEngine:
         if not done.wait(timeout=30.0):
             logger.warning("flush_on_stop timed out waiting for worker")
 
+    def start_recording(self) -> None:
+        self._clear_audio_state()
+        self._open_mic_stream()
+
+    def stop_recording(self) -> None:
+        self._close_mic_stream()
+        self._clear_audio_state()
+
     def start_background_mic(self) -> None:
         require_runtime_dependencies()
         assert sd is not None
         if self._thread is not None and self._thread.is_alive():
             return
 
-        cfg = self._config
-        block_seconds = cfg.input_block_seconds
-        blocksize = max(160, int(cfg.sample_rate * block_seconds))
-        pre_roll_blocks = max(1, int(round(cfg.vad_pre_roll_seconds / block_seconds)))
-        self._pre_roll = deque(maxlen=pre_roll_blocks)
-
-        def callback(indata, frames, time_info, status):  # pragma: no cover
-            if status:
-                logger.warning("audio status: %s", status)
-            block = AudioBlock(
-                samples=indata[:, 0].astype(np.float32, copy=True),
-                captured_at=time.perf_counter(),
-            )
-            try:
-                self._audio_queue.put_nowait(block)
-            except queue.Full:
-                pass
-
-        input_kwargs: dict = {
-            "samplerate": cfg.sample_rate,
-            "channels": 1,
-            "dtype": "float32",
-            "blocksize": blocksize,
-            "callback": callback,
-        }
-        if cfg.device is not None:
-            input_kwargs["device"] = cfg.device
-
-        self._stream = sd.InputStream(**input_kwargs)
-        self._stream.start()  # type: ignore[union-attr]
+        self._configure_pre_roll()
+        self._open_mic_stream()
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._worker_loop, name="partial-engine-worker", daemon=True)
         self._thread.start()
-        logger.info("background mic started blocksize=%s", blocksize)
+        logger.info("background worker started")
+
+    def _configure_pre_roll(self) -> None:
+        cfg = self._config
+        block_seconds = cfg.input_block_seconds
+        pre_roll_blocks = max(1, int(round(cfg.vad_pre_roll_seconds / block_seconds)))
+        self._pre_roll = deque(maxlen=pre_roll_blocks)
+
+    def _open_mic_stream(self) -> None:
+        require_runtime_dependencies()
+        assert sd is not None
+        with self._stream_lock:
+            if self._stream is not None:
+                return
+
+            cfg = self._config
+            block_seconds = cfg.input_block_seconds
+            blocksize = max(160, int(cfg.sample_rate * block_seconds))
+
+            def callback(indata, frames, time_info, status):  # pragma: no cover
+                if status:
+                    logger.warning("audio status: %s", status)
+                block = AudioBlock(
+                    samples=indata[:, 0].astype(np.float32, copy=True),
+                    captured_at=time.perf_counter(),
+                )
+                try:
+                    self._audio_queue.put_nowait(block)
+                except queue.Full:
+                    pass
+
+            input_kwargs: dict = {
+                "samplerate": cfg.sample_rate,
+                "channels": 1,
+                "dtype": "float32",
+                "blocksize": blocksize,
+                "callback": callback,
+            }
+            if cfg.device is not None:
+                input_kwargs["device"] = cfg.device
+
+            self._stream = sd.InputStream(**input_kwargs)
+            self._stream.start()  # type: ignore[union-attr]
+            logger.info("mic stream opened blocksize=%s", blocksize)
+
+    def _close_mic_stream(self) -> None:
+        with self._stream_lock:
+            stream = self._stream
+            self._stream = None
+        if stream is None:
+            return
+        try:
+            stream.stop()  # type: ignore[attr-defined]
+            stream.close()  # type: ignore[attr-defined]
+            logger.info("mic stream closed")
+        except Exception as exc:  # pragma: no cover
+            logger.warning("close mic stream: %s", exc)
+
+    def _clear_audio_state(self) -> None:
+        with self._lock:
+            self._utterance = None
+            self._pre_roll.clear()
+            self._voiced_run_seconds = 0.0
+        while True:
+            try:
+                self._audio_queue.get_nowait()
+            except queue.Empty:
+                break
 
     def stop(self) -> None:
         self._stop_event.set()
-        if self._stream is not None:
-            try:
-                self._stream.stop()  # type: ignore[union-attr]
-                self._stream.close()  # type: ignore[union-attr]
-            except Exception as exc:  # pragma: no cover
-                logger.warning("stop mic stream: %s", exc)
-            self._stream = None
+        self._close_mic_stream()
         if self._thread is not None:
             self._thread.join(timeout=5.0)
             self._thread = None
@@ -192,6 +239,7 @@ class PartialEngine:
                     logger.exception("ASR warmup failed; continuing without warmup")
             self._model_loaded = True
             self._calibrate_noise(cfg)
+            self._close_mic_stream()
             while not self._stop_event.is_set():
                 self._drain_control_queue()
                 self._drain_audio_blocks()

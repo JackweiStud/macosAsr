@@ -100,13 +100,14 @@
 
 ## P2 — 核心体验补齐
 
-### [P2-1] 听写中用户输入冲突保护
+### [P2-1] 听写中用户输入冲突保护 ✅代码完成 / 手动验收待跑
 - **位置**：`MacApp/macosAsrApp/InjectionStateMachine.swift`（backspace-retype 假设"pending 区只有我在动"）、`MacApp/macosAsrApp/GlobalHotkeyMonitor.swift`（event tap 已在监听全局 keyDown，可复用）。
 - **根因**：用户在听写中手动打字或点鼠标移光标后，下一次 partial 的退格会删掉用户自己刚输入的字符——目前**零防护**。这是 backspace-retype 注入方案能否在真实世界存活的关键。
 - **修法**：listening 期间，`GlobalHotkeyMonitor` 的 event tap 检测到"非本 App 注入来源"的 keyDown / 鼠标点击时，通知 `InjectionStateMachine` 放弃当前 pending（`pendingText = ""`，**不再退格**），后续 partial/final 只追加不回删。
   - 注意区分"自己注入的 CGEvent"与"用户真实按键"：可用 `CGEventSource` 的 `userData`/`sourceStateID` 标记，或在注入窗口期设标志位临时忽略。
 - **关联**：与 P2-3（注入挪出主线程）一起做更顺。
 - **验证**：听写中途手动敲几个字 → 后续识别文字应追加在用户输入之后，不删用户的字。
+- **执行记录**：`TextInjector` 给本 App 注入的 CGEvent 写入 `eventSourceUserData` 标记；`GlobalHotkeyMonitor` 扩展监听 keyDown / mouseDown，忽略自注入事件和 ⌥Z 本身，发现用户真实输入时通知 `LiveDictationController`；`InjectionStateMachine.onUserInputInterrupted()` 只清空 pending、不退格，后续 partial/final 不再回删用户刚输入的内容。新增 Swift 行为自测和源码护栏。已通过 `python3 -m unittest discover -s tests`、`./scripts/test_p0c.sh`。
 
 ### [P2-2] 撤销上一句（建议 ⌥⇧Z）
 - **位置**：新增热键逻辑（`GlobalHotkeyMonitor` 已有 event tap 框架）、`InjectionStateMachine`（已知 pending/上一句长度）。
@@ -121,12 +122,13 @@
 - **验证**：注入长文本时菜单栏/UI 仍可响应；文字顺序无错乱。
 - **执行记录**：`InjectionStateMachine` 已增加 `com.macosasr.injection` 专用串行队列；`onPartial/onFinal/onFiltered/onSessionStopped` 只负责入队，退格/打字与 `pendingText` 读写都在注入队列执行；`pendingLen` 改为队列安全读取。新增源码护栏和生产状态机自测，防止事件入口重新同步调用 `injector` 或回到主线程注入。已通过 `python3 -m unittest tests/test_p2_injection_queue_guardrails.py`、`./scripts/test_p0c.sh`、`./scripts/ci_smoke.sh`、`./scripts/build_macapp.sh`。
 
-### [P2-4] 麦克风常开 → 隐私观感问题（按需做）
+### [P2-4] 麦克风常开 → 隐私观感问题 ✅代码完成 / 手动验收待跑
 - **位置**：`asr_daemon/server.py:77`（daemon 启动即 `start_background_mic()`）、`asr/partial_engine.py`（`start_background_mic` / `stop` / 校准）。
 - **根因**：daemon 一启动麦克风就常开（不听写时也采集只是丢弃），macOS 橙色录音指示器**全程亮着**。对主打"音频不出本机"的隐私产品是观感硬伤。
 - **修法**：校准完成后关闭 InputStream；`session_start` 时再开（InputStream 启动 <100ms，体感无差）。需重构 `PartialEngine` 让 mic 流可反复开关，且校准逻辑只在首次或重新校准时跑。
 - **权衡**：会增加 PartialEngine 状态复杂度。若评估收益不值，可降级为"文档说明"。**先评估再动手。**
 - **验证**：App ready 但未听写时，菜单栏录音橙点应熄灭；按 ⌥Z 后亮起，停止后熄灭；听写功能不受影响。
+- **执行记录**：`PartialEngine` 新增 `start_recording()` / `stop_recording()` 和 `recording_active`；daemon 启动时仍临时开麦完成噪声校准，校准后立即关闭 InputStream；`SessionController.start_session()` 先开麦再置 listening，`stop_session()` flush 后关麦；status payload 增加 `recording_active` 便于调试。新增 session 调用顺序测试、fake sounddevice 开关流测试和源码护栏。已通过 `python3 -m unittest discover -s tests`、`./scripts/test_p0c.sh`。
 
 ### [P2-5] 重新校准噪声菜单项
 - **位置**：`asr/partial_engine.py:223-251`（`_calibrate_noise` 只在启动跑一次）、`asr_daemon/server.py`（`_dispatch` 加命令）、`AppDelegate.swift`（加菜单项）。

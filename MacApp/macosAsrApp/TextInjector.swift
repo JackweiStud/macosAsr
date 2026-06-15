@@ -7,6 +7,10 @@ protocol TextInjecting: AnyObject {
     func typeText(_ text: String)
 }
 
+enum InjectionEventMarker {
+    static let userData: Int64 = 0x4D415352494E4A
+}
+
 final class TextInjector: TextInjecting {
     private let backspaceKeyCode: CGKeyCode = 0x33 // kVK_Delete
 
@@ -27,6 +31,8 @@ final class TextInjector: TextInjecting {
         for _ in 0 ..< count {
             let down = CGEvent(keyboardEventSource: source, virtualKey: backspaceKeyCode, keyDown: true)
             let up = CGEvent(keyboardEventSource: source, virtualKey: backspaceKeyCode, keyDown: false)
+            markInjected(down)
+            markInjected(up)
             down?.post(tap: .cghidEventTap)
             up?.post(tap: .cghidEventTap)
             usleep(400)
@@ -43,9 +49,15 @@ final class TextInjector: TextInjecting {
             else { continue }
             down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
             up.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
+            markInjected(down)
+            markInjected(up)
             down.post(tap: .cghidEventTap)
             up.post(tap: .cghidEventTap)
             usleep(400)
         }
+    }
+
+    private func markInjected(_ event: CGEvent?) {
+        event?.setIntegerValueField(.eventSourceUserData, value: InjectionEventMarker.userData)
     }
 }
