@@ -43,6 +43,7 @@ class WarmUpAsrModelTests(unittest.TestCase):
             {
                 "audio_len": 16_000,
                 "language": "Chinese",
+                "system_prompt": None,
                 "chunk_duration": 1200.0,
                 "min_chunk_duration": 1.0,
                 "verbose": False,
@@ -52,11 +53,22 @@ class WarmUpAsrModelTests(unittest.TestCase):
             {
                 "audio_len": 16_000,
                 "language": "Chinese",
+                "system_prompt": None,
                 "chunk_duration": 1200.0,
                 "min_chunk_duration": 1.0,
                 "verbose": False,
             }
         ])
+
+    def test_warm_up_forwards_context_to_stream_and_final_paths(self) -> None:
+        model = _FakeModel()
+        context = "场景：前端和后端开发。术语：React、Redis、WebSocket。"
+        config = AsrConfig(system_prompt=context)
+
+        warm_up_asr_model(model, config)
+
+        self.assertEqual(model.stream_calls[0]["system_prompt"], context)
+        self.assertEqual(model.generate_calls[0]["system_prompt"], context)
 
 
 if __name__ == "__main__":

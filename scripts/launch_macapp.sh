@@ -19,7 +19,23 @@ if [[ -e "$SOCK" ]] && ! pgrep -f "python.*asr_daemon" >/dev/null 2>&1; then
   echo "已清理残留 socket（daemon 未运行）"
 fi
 
-open --env MACOSASR_ROOT="$ROOT" "$APP"
+OPEN_ENV_ARGS=(--env "MACOSASR_ROOT=$ROOT")
+if [[ -n "${MACOSASR_CONTEXT:-}" ]]; then
+  OPEN_ENV_ARGS+=(--env "MACOSASR_CONTEXT=$MACOSASR_CONTEXT")
+fi
+if [[ "${MACOSASR_PREVIOUS_FINAL_CONTEXT+x}" == "x" ]]; then
+  OPEN_ENV_ARGS+=(--env "MACOSASR_PREVIOUS_FINAL_CONTEXT=$MACOSASR_PREVIOUS_FINAL_CONTEXT")
+fi
+if [[ "${MACOSASR_PREVIOUS_FINAL_CONTEXT_CHARS+x}" == "x" ]]; then
+  OPEN_ENV_ARGS+=(--env "MACOSASR_PREVIOUS_FINAL_CONTEXT_CHARS=$MACOSASR_PREVIOUS_FINAL_CONTEXT_CHARS")
+fi
+if [[ "${MACOSASR_FINAL_AUDIO_TRIM+x}" == "x" ]]; then
+  OPEN_ENV_ARGS+=(--env "MACOSASR_FINAL_AUDIO_TRIM=$MACOSASR_FINAL_AUDIO_TRIM")
+fi
+if [[ "${MACOSASR_FINAL_TRAILING_SILENCE_KEEP+x}" == "x" ]]; then
+  OPEN_ENV_ARGS+=(--env "MACOSASR_FINAL_TRAILING_SILENCE_KEEP=$MACOSASR_FINAL_TRAILING_SILENCE_KEEP")
+fi
+open "${OPEN_ENV_ARGS[@]}" "$APP"
 echo "已启动 macosAsrApp"
 echo "首次冷启动约 30s（⏳ → 🎤）；若一直 ⏳ 请看 log/daemon.log"
 echo "退出：菜单栏 🎤 ASR → Quit（⌘Q），会同时关闭 asr_daemon"

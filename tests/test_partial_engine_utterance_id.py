@@ -7,6 +7,7 @@ import numpy as np
 
 from asr.asr_core import AudioBlock
 from asr.config import AsrConfig
+import asr.partial_engine as partial_engine
 from asr.partial_engine import PartialEngine
 
 
@@ -120,6 +121,98 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
                 ("final", 1, "hello final"),
             ],
         )
+
+    def test_final_audio_trim_sends_full_audio_to_partial_and_trimmed_audio_to_final(self) -> None:
+        config = AsrConfig(
+            sample_rate=10,
+            input_block_seconds=0.1,
+            partial_interval_seconds=0.0,
+            partial_min_audio_seconds=0.1,
+            vad_start_speech_seconds=0.1,
+            vad_min_utterance_seconds=0.1,
+            filter_fillers=False,
+            min_final_chars=1,
+            final_audio_trim_enabled=True,
+            final_trailing_silence_keep_seconds=0.0,
+        )
+        callback = _RecordingCallback()
+        engine = PartialEngine(config, callback)
+        engine._model = object()
+        engine._active_threshold = 0.1
+        engine.set_listening(True)
+
+        stream_sample_counts: list[int] = []
+        generate_sample_counts: list[int] = []
+
+        def stream(_model, blocks, _config):
+            stream_sample_counts.append(sum(len(block.samples) for block in blocks))
+            return "hello partial"
+
+        def generate(_model, blocks, _config):
+            generate_sample_counts.append(sum(len(block.samples) for block in blocks))
+            return "hello final"
+
+        speech = np.full(1, 0.5, dtype=np.float32)
+        silence = np.zeros(1, dtype=np.float32)
+
+        with (
+            patch("asr.partial_engine.stream_utterance_text", stream),
+            patch("asr.partial_engine.generate_utterance_text", generate),
+        ):
+            for block in [
+                AudioBlock(samples=speech, captured_at=0.0),
+                AudioBlock(samples=speech, captured_at=0.1),
+                AudioBlock(samples=silence, captured_at=0.2),
+                AudioBlock(samples=silence, captured_at=0.3),
+                AudioBlock(samples=silence, captured_at=0.4),
+            ]:
+                engine._audio_queue.put(block)
+
+            engine._drain_audio_blocks()
+            engine._process_active_utterance(end_silence_threshold=0.3)
+
+        self.assertEqual(stream_sample_counts, [5])
+        self.assertEqual(generate_sample_counts, [2])
+        self.assertEqual(
+            callback.events,
+            [
+                ("partial", 1, "hello partial"),
+                ("final", 1, "hello final"),
+            ],
+        )
+
+    def test_final_audio_trim_disabled_sends_full_audio_to_final(self) -> None:
+        config = AsrConfig(
+            sample_rate=10,
+            final_audio_trim_enabled=False,
+            filter_fillers=False,
+            min_final_chars=1,
+            vad_min_utterance_seconds=0.1,
+        )
+        callback = _RecordingCallback()
+        engine = PartialEngine(config, callback)
+        engine._model = object()
+        utterance = partial_engine._UtteranceState(
+            utterance_id=1,
+            blocks=[
+                AudioBlock(samples=np.ones(1, dtype=np.float32), captured_at=0.0),
+                AudioBlock(samples=np.zeros(1, dtype=np.float32), captured_at=0.1),
+            ],
+            started_at=0.0,
+            last_voice_at=0.0,
+            silence_run_seconds=0.1,
+        )
+
+        generate_sample_counts: list[int] = []
+
+        def generate(_model, blocks, _config):
+            generate_sample_counts.append(sum(len(block.samples) for block in blocks))
+            return "ok"
+
+        with patch("asr.partial_engine.generate_utterance_text", generate):
+            engine._finalize_utterance(utterance)
+
+        self.assertEqual(generate_sample_counts, [2])
 
 
 if __name__ == "__main__":

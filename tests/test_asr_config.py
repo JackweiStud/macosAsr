@@ -17,6 +17,11 @@ class AsrConfigTests(unittest.TestCase):
 
         self.assertIn("model=mlx-community/Qwen3-ASR-0.6B-8bit", summary)
         self.assertIn("language=Chinese", summary)
+        self.assertIn("context_chars=0", summary)
+        self.assertIn("previous_final_context=True", summary)
+        self.assertIn("previous_final_context_chars=120", summary)
+        self.assertIn("final_audio_trim=True", summary)
+        self.assertIn("final_trailing_silence_keep=0.30s", summary)
         self.assertIn("sample_rate=16000", summary)
         self.assertIn("partial_interval=0.50s", summary)
         self.assertIn("partial_min_audio=0.60s", summary)
@@ -39,17 +44,45 @@ class AsrConfigTests(unittest.TestCase):
 
     def test_apply_env_overrides_accepts_developer_tuning_values(self) -> None:
         config = AsrConfig()
+        context = "场景：软件开发。术语：TypeScript、FastAPI、PostgreSQL。"
 
         apply_env_overrides(
             config,
             {
+                "MACOSASR_CONTEXT": f"  {context}  ",
+                "MACOSASR_PREVIOUS_FINAL_CONTEXT": "yes",
+                "MACOSASR_PREVIOUS_FINAL_CONTEXT_CHARS": "80",
+                "MACOSASR_FINAL_AUDIO_TRIM": "true",
+                "MACOSASR_FINAL_TRAILING_SILENCE_KEEP": "0.25",
                 "MACOSASR_PARTIAL_INTERVAL": "0.3",
                 "MACOSASR_VAD_END_SILENCE": "2.0",
             },
         )
 
+        self.assertEqual(config.system_prompt, context)
+        self.assertTrue(config.previous_final_context_enabled)
+        self.assertEqual(config.previous_final_context_chars, 80)
+        self.assertTrue(config.final_audio_trim_enabled)
+        self.assertEqual(config.final_trailing_silence_keep_seconds, 0.25)
         self.assertEqual(config.partial_interval_seconds, 0.3)
         self.assertEqual(config.vad_end_silence_seconds, 2.0)
+        summary = config.log_summary()
+        self.assertIn(f"context_chars={len(context)}", summary)
+        self.assertNotIn(context, summary)
+
+    def test_apply_env_overrides_can_disable_previous_final_context(self) -> None:
+        config = AsrConfig(previous_final_context_enabled=True)
+
+        apply_env_overrides(config, {"MACOSASR_PREVIOUS_FINAL_CONTEXT": "0"})
+
+        self.assertFalse(config.previous_final_context_enabled)
+
+    def test_apply_env_overrides_can_disable_final_audio_trim(self) -> None:
+        config = AsrConfig(final_audio_trim_enabled=True)
+
+        apply_env_overrides(config, {"MACOSASR_FINAL_AUDIO_TRIM": "0"})
+
+        self.assertFalse(config.final_audio_trim_enabled)
 
 
 if __name__ == "__main__":

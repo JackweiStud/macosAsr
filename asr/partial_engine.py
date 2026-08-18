@@ -266,7 +266,7 @@ class PartialEngine:
                     self._pre_roll.clear()
                     self._voiced_run_seconds = 0.0
                 if utterance is not None:
-                    self._finalize_utterance(utterance, force_short=True)
+                    self._finalize_utterance(utterance, force_short=True, reason="flush")
                 done.set()
 
     def _calibrate_noise(self, cfg: AsrConfig) -> None:
@@ -392,7 +392,7 @@ class PartialEngine:
                 self._voiced_run_seconds = 0.0
             if utterance_seconds < cfg.vad_min_utterance_seconds:
                 return
-            self._finalize_utterance(utterance)
+            self._finalize_utterance(utterance, reason="silence")
             return
 
         if cfg.vad_max_utterance_seconds > 0 and utterance_seconds >= cfg.vad_max_utterance_seconds:
@@ -400,21 +400,44 @@ class PartialEngine:
                 self._utterance = None
                 self._pre_roll.clear()
                 self._voiced_run_seconds = 0.0
-            self._finalize_utterance(utterance)
+            self._finalize_utterance(utterance, reason="max_utterance")
 
     def _emit_partial(self, uid: int, text: str) -> None:
         logger.debug("partial u=%s len=%s", uid, len(text))
         self._callback.on_partial(uid, text)
 
-    def _finalize_utterance(self, utterance: _UtteranceState, *, force_short: bool = False) -> None:
+    def _finalize_utterance(
+        self,
+        utterance: _UtteranceState,
+        *,
+        force_short: bool = False,
+        reason: str = "final",
+    ) -> None:
         cfg = self._config
         assert self._model is not None
         utterance_seconds = sum(len(b.samples) for b in utterance.blocks) / float(cfg.sample_rate)
         if not force_short and utterance_seconds < cfg.vad_min_utterance_seconds:
             return
 
-        final_text = generate_utterance_text(self._model, utterance.blocks, cfg)
+        final_blocks = self._final_audio_blocks(utterance)
+        final_audio_seconds = sum(len(b.samples) for b in final_blocks) / float(cfg.sample_rate)
+        final_start = time.perf_counter()
+        final_text = generate_utterance_text(self._model, final_blocks, cfg)
+        final_ms = (time.perf_counter() - final_start) * 1000.0
         uid = utterance.utterance_id
+        logger.info(
+            "final_metrics u=%s reason=%s utterance_seconds=%.2f final_audio_seconds=%.2f "
+            "trimmed_seconds=%.2f final_ms=%.1f partial_count=%s final_len=%s silence_seconds=%.2f",
+            uid,
+            reason,
+            utterance_seconds,
+            final_audio_seconds,
+            max(0.0, utterance_seconds - final_audio_seconds),
+            final_ms,
+            utterance.partial_count,
+            len(final_text),
+            utterance.silence_run_seconds,
+        )
 
         if final_text and should_drop_final_text(final_text, cfg):
             reason = "filler_or_short"
@@ -425,3 +448,14 @@ class PartialEngine:
             self._callback.on_final(uid, final_text)
         else:
             self._callback.on_filtered(uid, "", "empty")
+
+    def _final_audio_blocks(self, utterance: _UtteranceState) -> list[AudioBlock]:
+        cfg = self._config
+        if not cfg.final_audio_trim_enabled:
+            return utterance.blocks
+
+        keep_until = utterance.last_voice_at + max(0.0, cfg.final_trailing_silence_keep_seconds)
+        trimmed = [block for block in utterance.blocks if block.captured_at <= keep_until]
+        if not trimmed:
+            return utterance.blocks
+        return trimmed

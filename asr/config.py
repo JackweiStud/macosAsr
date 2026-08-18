@@ -11,6 +11,11 @@ class AsrConfig:
 
     model: str = "mlx-community/Qwen3-ASR-0.6B-8bit"
     language: str = "Chinese"
+    system_prompt: str = ""
+    previous_final_context_enabled: bool = True
+    previous_final_context_chars: int = 120
+    final_audio_trim_enabled: bool = True
+    final_trailing_silence_keep_seconds: float = 0.30
     sample_rate: int = 16_000
     device: int | None = None
 
@@ -42,6 +47,11 @@ class AsrConfig:
         return (
             f"model={self.model} "
             f"language={self.language} "
+            f"context_chars={len(self.system_prompt)} "
+            f"previous_final_context={self.previous_final_context_enabled} "
+            f"previous_final_context_chars={self.previous_final_context_chars} "
+            f"final_audio_trim={self.final_audio_trim_enabled} "
+            f"final_trailing_silence_keep={self.final_trailing_silence_keep_seconds:.2f}s "
             f"sample_rate={self.sample_rate} "
             f"device={self.device} "
             f"input_block={self.input_block_seconds:.2f}s "
