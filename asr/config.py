@@ -20,11 +20,17 @@ class AsrConfig:
     sample_rate: int = 16_000  # 采样率（Hz）
     device: int | None = None  # 麦克风设备 index；None 用系统默认
 
-    # --- 采集与 partial ---
+    # --- 采集与 partial / 长句滚动 ---
     input_block_seconds: float = 0.02  # 麦克风每次读块时长
-    partial_interval_seconds: float = 0.5  # live 感与推理开销折中；可用 MACOSASR_PARTIAL_INTERVAL 覆盖
+    partial_interval_seconds: float = 0.5  # live 刷新间隔；可用 MACOSASR_PARTIAL_INTERVAL 覆盖
     partial_min_audio_seconds: float = 0.60  # 发出 partial 所需最短音频
-    partial_max_audio_seconds: float = 8.0  # partial 滑动窗口上限
+    # 单句音频上限（默认开启滚动）：到期先 final 再新开一句，避免长句停更。
+    # 0 表示不滚动、也不限制 partial 全量重跑（仅调试用）。
+    partial_max_audio_seconds: float = 8.0
+    # 最短滚动时长。与上限同为 8s：8 秒前不因短换气切句。
+    partial_roll_min_seconds: float = 8.0
+    # 到期时若已有这么长静音，在静音处切；否则硬切。0.40s 避免把换气当成切点。
+    partial_roll_silence_seconds: float = 0.40
 
     # --- VAD ---
     vad_rms_threshold: float = 0.0  # 0 表示启动时由噪声校准覆盖
@@ -65,6 +71,8 @@ class AsrConfig:
             f"partial_interval={self.partial_interval_seconds:.2f}s "
             f"partial_min_audio={self.partial_min_audio_seconds:.2f}s "
             f"partial_max_audio={self.partial_max_audio_seconds:.2f}s "
+            f"partial_roll_min={self.partial_roll_min_seconds:.2f}s "
+            f"partial_roll_silence={self.partial_roll_silence_seconds:.2f}s "
             f"vad_rms_threshold={self.vad_rms_threshold:.4f} "
             f"vad_end_silence={self.vad_end_silence_seconds:.2f}s "
             f"vad_start_speech={self.vad_start_speech_seconds:.2f}s "

@@ -231,7 +231,7 @@ export MACOSASR_PARTIAL_INTERVAL=0.8
 
 Lower = snappier live text, more GPU/injection load. Not exposed in the Settings UI.
 
-For long utterances, partial refresh stops after about **8s** to avoid repeatedly re-running inference over the whole utterance. Final text still emits and corrects the utterance after you stop speaking.
+For long utterances, the daemon now commits the current segment at about **8s** and immediately starts a new utterance. This keeps live text moving during 10-18s+ dictation instead of freezing until the final sentence boundary.
 
 Recognition language is in **Settings…** (Chinese / English), stored under `~/Library/Application Support/macosAsr/config.json`.
 

@@ -41,6 +41,15 @@ fi
 if [[ "${MACOSASR_VAD_SOFT_BREAK_SILENCE+x}" == "x" ]]; then
   OPEN_ENV_ARGS+=(--env "MACOSASR_VAD_SOFT_BREAK_SILENCE=$MACOSASR_VAD_SOFT_BREAK_SILENCE")
 fi
+if [[ "${MACOSASR_PARTIAL_MAX_AUDIO+x}" == "x" ]]; then
+  OPEN_ENV_ARGS+=(--env "MACOSASR_PARTIAL_MAX_AUDIO=$MACOSASR_PARTIAL_MAX_AUDIO")
+fi
+if [[ "${MACOSASR_PARTIAL_ROLL_MIN+x}" == "x" ]]; then
+  OPEN_ENV_ARGS+=(--env "MACOSASR_PARTIAL_ROLL_MIN=$MACOSASR_PARTIAL_ROLL_MIN")
+fi
+if [[ "${MACOSASR_PARTIAL_ROLL_SILENCE+x}" == "x" ]]; then
+  OPEN_ENV_ARGS+=(--env "MACOSASR_PARTIAL_ROLL_SILENCE=$MACOSASR_PARTIAL_ROLL_SILENCE")
+fi
 open "${OPEN_ENV_ARGS[@]}" "$APP"
 echo "已启动 macosAsrApp"
 echo "首次冷启动约 30s（⏳ → 🎤）；若一直 ⏳ 请看 log/daemon.log"

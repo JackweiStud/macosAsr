@@ -42,6 +42,18 @@ def apply_env_overrides(config: AsrConfig, environ: dict[str, str]) -> None:
     if partial_env:
         config.partial_interval_seconds = float(partial_env)
 
+    partial_max_env = environ.get("MACOSASR_PARTIAL_MAX_AUDIO")
+    if partial_max_env:
+        config.partial_max_audio_seconds = max(0.0, float(partial_max_env))
+
+    partial_roll_min_env = environ.get("MACOSASR_PARTIAL_ROLL_MIN")
+    if partial_roll_min_env:
+        config.partial_roll_min_seconds = max(0.0, float(partial_roll_min_env))
+
+    partial_roll_silence_env = environ.get("MACOSASR_PARTIAL_ROLL_SILENCE")
+    if partial_roll_silence_env:
+        config.partial_roll_silence_seconds = max(0.0, float(partial_roll_silence_env))
+
     vad_end_env = environ.get("MACOSASR_VAD_END_SILENCE")
     if vad_end_env:
         config.vad_end_silence_seconds = float(vad_end_env)

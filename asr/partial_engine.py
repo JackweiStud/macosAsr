@@ -269,6 +269,12 @@ class PartialEngine:
                     self._finalize_utterance(utterance, force_short=True, reason="flush")
                 done.set()
 
+    def _release_utterance(self) -> None:
+        with self._lock:
+            self._utterance = None
+            self._pre_roll.clear()
+            self._voiced_run_seconds = 0.0
+
     def _calibrate_noise(self, cfg: AsrConfig) -> None:
         if cfg.noise_calibration_seconds <= 0:
             self._measured_noise_floor = 0.0
@@ -365,13 +371,15 @@ class PartialEngine:
             return
 
         utterance_seconds = sum(len(b.samples) for b in utterance.blocks) / float(cfg.sample_rate)
+        roll_reason = self._utterance_roll_reason(utterance_seconds, utterance)
         within_partial_window = (
             cfg.partial_max_audio_seconds <= 0
             or utterance_seconds <= cfg.partial_max_audio_seconds
         )
 
         if (
-            utterance_seconds >= cfg.partial_min_audio_seconds
+            roll_reason is None
+            and utterance_seconds >= cfg.partial_min_audio_seconds
             and within_partial_window
             and now - utterance.last_partial_at >= cfg.partial_interval_seconds
         ):
@@ -386,30 +394,28 @@ class PartialEngine:
                 self._emit_partial(utterance.utterance_id, partial_text)
 
         if utterance.silence_run_seconds >= end_silence_threshold:
-            with self._lock:
-                self._utterance = None
-                self._pre_roll.clear()
-                self._voiced_run_seconds = 0.0
+            self._release_utterance()
             if utterance_seconds < cfg.vad_min_utterance_seconds:
                 return
             self._finalize_utterance(utterance, reason="silence")
             return
 
+        if roll_reason is not None:
+            self._release_utterance()
+            if utterance_seconds < cfg.vad_min_utterance_seconds:
+                return
+            self._finalize_utterance(utterance, reason=roll_reason)
+            return
+
         if self._should_soft_break_utterance(utterance_seconds, utterance):
-            with self._lock:
-                self._utterance = None
-                self._pre_roll.clear()
-                self._voiced_run_seconds = 0.0
+            self._release_utterance()
             if utterance_seconds < cfg.vad_min_utterance_seconds:
                 return
             self._finalize_utterance(utterance, reason="soft_silence")
             return
 
         if cfg.vad_max_utterance_seconds > 0 and utterance_seconds >= cfg.vad_max_utterance_seconds:
-            with self._lock:
-                self._utterance = None
-                self._pre_roll.clear()
-                self._voiced_run_seconds = 0.0
+            self._release_utterance()
             self._finalize_utterance(utterance, reason="max_utterance")
 
     def _emit_partial(self, uid: int, text: str) -> None:
@@ -469,6 +475,23 @@ class PartialEngine:
         if not trimmed:
             return utterance.blocks
         return trimmed
+
+    def _utterance_roll_reason(self, utterance_seconds: float, utterance: _UtteranceState) -> str | None:
+        """到期提交当前句并新开一句。有短静音则提前切，否则满上限硬切。"""
+        cfg = self._config
+        if cfg.partial_max_audio_seconds <= 0:
+            return None
+        roll_silence = max(cfg.input_block_seconds, cfg.partial_roll_silence_seconds)
+        if (
+            cfg.partial_roll_min_seconds > 0
+            and cfg.partial_roll_silence_seconds > 0
+            and utterance_seconds >= cfg.partial_roll_min_seconds
+            and utterance.silence_run_seconds >= roll_silence
+        ):
+            return "roll_silence"
+        if utterance_seconds >= cfg.partial_max_audio_seconds:
+            return "max_audio_window"
+        return None
 
     def _should_soft_break_utterance(self, utterance_seconds: float, utterance: _UtteranceState) -> bool:
         cfg = self._config
