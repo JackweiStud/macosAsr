@@ -395,6 +395,16 @@ class PartialEngine:
             self._finalize_utterance(utterance, reason="silence")
             return
 
+        if self._should_soft_break_utterance(utterance_seconds, utterance):
+            with self._lock:
+                self._utterance = None
+                self._pre_roll.clear()
+                self._voiced_run_seconds = 0.0
+            if utterance_seconds < cfg.vad_min_utterance_seconds:
+                return
+            self._finalize_utterance(utterance, reason="soft_silence")
+            return
+
         if cfg.vad_max_utterance_seconds > 0 and utterance_seconds >= cfg.vad_max_utterance_seconds:
             with self._lock:
                 self._utterance = None
@@ -459,3 +469,13 @@ class PartialEngine:
         if not trimmed:
             return utterance.blocks
         return trimmed
+
+    def _should_soft_break_utterance(self, utterance_seconds: float, utterance: _UtteranceState) -> bool:
+        cfg = self._config
+        if cfg.vad_soft_max_utterance_seconds <= 0 or cfg.vad_soft_break_silence_seconds <= 0:
+            return False
+        if utterance_seconds < cfg.vad_soft_max_utterance_seconds:
+            return False
+
+        soft_break_silence = max(cfg.input_block_seconds, cfg.vad_soft_break_silence_seconds)
+        return utterance.silence_run_seconds >= soft_break_silence

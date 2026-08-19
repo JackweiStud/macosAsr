@@ -46,6 +46,14 @@ def apply_env_overrides(config: AsrConfig, environ: dict[str, str]) -> None:
     if vad_end_env:
         config.vad_end_silence_seconds = float(vad_end_env)
 
+    vad_soft_max_env = environ.get("MACOSASR_VAD_SOFT_MAX_UTTERANCE")
+    if vad_soft_max_env:
+        config.vad_soft_max_utterance_seconds = max(0.0, float(vad_soft_max_env))
+
+    vad_soft_break_env = environ.get("MACOSASR_VAD_SOFT_BREAK_SILENCE")
+    if vad_soft_break_env:
+        config.vad_soft_break_silence_seconds = max(0.0, float(vad_soft_break_env))
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(

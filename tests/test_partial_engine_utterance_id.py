@@ -214,6 +214,90 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
 
         self.assertEqual(generate_sample_counts, [2])
 
+    def test_soft_boundary_finalizes_long_utterance_on_short_silence(self) -> None:
+        config = AsrConfig(
+            sample_rate=10,
+            input_block_seconds=0.1,
+            partial_min_audio_seconds=99.0,
+            vad_start_speech_seconds=0.1,
+            vad_end_silence_seconds=1.0,
+            vad_min_utterance_seconds=0.1,
+            vad_soft_max_utterance_seconds=0.3,
+            vad_soft_break_silence_seconds=0.15,
+            vad_max_utterance_seconds=5.0,
+            filter_fillers=False,
+            min_final_chars=1,
+            final_audio_trim_enabled=False,
+        )
+        callback = _RecordingCallback()
+        engine = PartialEngine(config, callback)
+        engine._model = object()
+        engine._active_threshold = 0.1
+        engine.set_listening(True)
+
+        speech = np.full(1, 0.5, dtype=np.float32)
+        silence = np.zeros(1, dtype=np.float32)
+
+        with (
+            self.assertLogs("asr.partial_engine", level="INFO") as logs,
+            patch("asr.partial_engine.generate_utterance_text", return_value="soft final"),
+        ):
+            for block in [
+                AudioBlock(samples=speech, captured_at=0.0),
+                AudioBlock(samples=speech, captured_at=0.1),
+                AudioBlock(samples=speech, captured_at=0.2),
+                AudioBlock(samples=silence, captured_at=0.3),
+                AudioBlock(samples=silence, captured_at=0.4),
+            ]:
+                engine._audio_queue.put(block)
+
+            engine._drain_audio_blocks()
+            engine._process_active_utterance(end_silence_threshold=1.0)
+
+        self.assertEqual(callback.events, [("final", 1, "soft final")])
+        self.assertIn("reason=soft_silence", "\n".join(logs.output))
+        self.assertIsNone(engine._utterance)
+
+    def test_soft_boundary_waits_until_soft_max_is_reached(self) -> None:
+        config = AsrConfig(
+            sample_rate=10,
+            input_block_seconds=0.1,
+            partial_min_audio_seconds=99.0,
+            vad_start_speech_seconds=0.1,
+            vad_end_silence_seconds=1.0,
+            vad_min_utterance_seconds=0.1,
+            vad_soft_max_utterance_seconds=1.0,
+            vad_soft_break_silence_seconds=0.15,
+            vad_max_utterance_seconds=5.0,
+            filter_fillers=False,
+            min_final_chars=1,
+        )
+        callback = _RecordingCallback()
+        engine = PartialEngine(config, callback)
+        engine._model = object()
+        engine._active_threshold = 0.1
+        engine.set_listening(True)
+
+        speech = np.full(1, 0.5, dtype=np.float32)
+        silence = np.zeros(1, dtype=np.float32)
+
+        with patch("asr.partial_engine.generate_utterance_text") as generate:
+            for block in [
+                AudioBlock(samples=speech, captured_at=0.0),
+                AudioBlock(samples=speech, captured_at=0.1),
+                AudioBlock(samples=speech, captured_at=0.2),
+                AudioBlock(samples=silence, captured_at=0.3),
+                AudioBlock(samples=silence, captured_at=0.4),
+            ]:
+                engine._audio_queue.put(block)
+
+            engine._drain_audio_blocks()
+            engine._process_active_utterance(end_silence_threshold=1.0)
+
+        generate.assert_not_called()
+        self.assertEqual(callback.events, [])
+        self.assertIsNotNone(engine._utterance)
+
 
 if __name__ == "__main__":
     unittest.main()

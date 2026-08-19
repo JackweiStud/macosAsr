@@ -30,6 +30,8 @@ class AsrConfigTests(unittest.TestCase):
         self.assertIn("vad_start_speech=0.20s", summary)
         self.assertIn("vad_min_utterance=0.60s", summary)
         self.assertIn("vad_pre_roll=0.50s", summary)
+        self.assertIn("vad_soft_max_utterance=12.00s", summary)
+        self.assertIn("vad_soft_break_silence=0.50s", summary)
         self.assertIn("vad_max_utterance=20.00s", summary)
         self.assertIn("noise_calibration=3.00s", summary)
         self.assertIn("noise_multiplier=3.00", summary)
@@ -56,6 +58,8 @@ class AsrConfigTests(unittest.TestCase):
                 "MACOSASR_FINAL_TRAILING_SILENCE_KEEP": "0.25",
                 "MACOSASR_PARTIAL_INTERVAL": "0.3",
                 "MACOSASR_VAD_END_SILENCE": "2.0",
+                "MACOSASR_VAD_SOFT_MAX_UTTERANCE": "9.5",
+                "MACOSASR_VAD_SOFT_BREAK_SILENCE": "0.4",
             },
         )
 
@@ -66,6 +70,8 @@ class AsrConfigTests(unittest.TestCase):
         self.assertEqual(config.final_trailing_silence_keep_seconds, 0.25)
         self.assertEqual(config.partial_interval_seconds, 0.3)
         self.assertEqual(config.vad_end_silence_seconds, 2.0)
+        self.assertEqual(config.vad_soft_max_utterance_seconds, 9.5)
+        self.assertEqual(config.vad_soft_break_silence_seconds, 0.4)
         summary = config.log_summary()
         self.assertIn(f"context_chars={len(context)}", summary)
         self.assertNotIn(context, summary)
