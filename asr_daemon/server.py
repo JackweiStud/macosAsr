@@ -182,6 +182,24 @@ class DaemonServer:
         except OSError as exc:
             logger.warning("send failed: %s", exc)
 
+    def _apply_config_update(self, msg: dict) -> None:
+        """热更新断句等待与 live 刷新；立即写回内存中的 AsrConfig。"""
+        if "partial_interval_seconds" in msg:
+            try:
+                self._config.partial_interval_seconds = max(0.05, float(msg["partial_interval_seconds"]))
+            except (TypeError, ValueError):
+                logger.warning("config_update ignored invalid partial_interval_seconds=%r", msg.get("partial_interval_seconds"))
+        if "vad_end_silence_seconds" in msg:
+            try:
+                self._config.vad_end_silence_seconds = max(0.05, float(msg["vad_end_silence_seconds"]))
+            except (TypeError, ValueError):
+                logger.warning("config_update ignored invalid vad_end_silence_seconds=%r", msg.get("vad_end_silence_seconds"))
+        logger.info(
+            "config_updated partial_interval=%.2fs vad_end_silence=%.2fs",
+            self._config.partial_interval_seconds,
+            self._config.vad_end_silence_seconds,
+        )
+
     def _dispatch(self, msg: dict) -> list[dict]:
         if msg.get("protocol") != PROTOCOL_VERSION:
             return [{"protocol": 1, "type": "error", "message": "unsupported protocol", "code": "bad_protocol"}]
@@ -209,6 +227,17 @@ class DaemonServer:
                     }
                 ]
             return [self._session.status_payload()]
+
+        if cmd == "config_update":
+            self._apply_config_update(msg)
+            return [
+                {
+                    "protocol": 1,
+                    "type": "config_updated",
+                    "partial_interval_seconds": self._config.partial_interval_seconds,
+                    "vad_end_silence_seconds": self._config.vad_end_silence_seconds,
+                }
+            ]
 
         if self._session is None:
             return [{"protocol": 1, "type": "error", "message": "model not loaded", "code": "no_model"}]

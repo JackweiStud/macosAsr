@@ -220,7 +220,6 @@ class PartialEngine:
 
     def _worker_loop(self) -> None:
         cfg = self._config
-        end_silence_threshold = max(0.05, cfg.vad_end_silence_seconds)
 
         try:
             logger.info("loading model on worker thread: %s", cfg.model)
@@ -246,7 +245,7 @@ class PartialEngine:
                 if not self.is_listening():
                     time.sleep(0.01)
                     continue
-                self._process_active_utterance(end_silence_threshold)
+                self._process_active_utterance(max(0.05, cfg.vad_end_silence_seconds))
                 time.sleep(0.01)
         except Exception as exc:
             logger.exception("worker loop failed")
