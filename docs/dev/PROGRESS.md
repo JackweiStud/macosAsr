@@ -6,7 +6,7 @@
 
 ## Current phase
 
-**v0.1.x 开源基线** — P0 完成；**全局 ⌥Z Toggle**；设置页（语言/模型/听写参数）；README 中英双语；CI 冒烟；2026-06-12 P0 review hardening、P1-1 daemon 自愈、P1-3 partial 限流、P2-1 输入保护、P2-3 后台注入、P2-4 按需开麦已落地
+**v0.1.x 开源基线** — P0 完成；**全局 ⌥Z Toggle**；设置页（语言/模型/听写参数）；README 中英双语；CI 冒烟；2026-06-12 P0 review hardening、P1-1 daemon 自愈、P1-3 partial 限流、P2-1 输入保护、P2-3 后台注入、P2-4 按需开麦已落地；2026-08-18 长句滚动提交已通过实机长口述验收
 
 ## Next actions（体验候选）
 
@@ -29,7 +29,7 @@
 | 设置页（语言） | ✅ | Application Support `config.json` |
 | P0 review hardening | ✅ | 移除本机模型路径；Quit bounded shutdown；修正 utterance_id；删空实验目录 |
 | P1-1 daemon 自愈 | ✅ | daemon 退出/send 失败进入 `⚠️ ASR`；错误态可重启；连续失败限流 |
-| P1-3 partial 限流 | ✅ | 单句超过约 8s 后停止 partial 刷新；final 仍完整输出 |
+| P1-3 partial 限流 / 长句滚动提交 | ✅ | 单句约 8s 滚动提交 final 并继续新一句 partial，避免长口述 live 停更 |
 | P2-1 输入保护 | ✅ | 听写中用户键盘/鼠标输入会丢弃当前 pending，后续不回删用户内容 |
 | P2-3 后台注入 | ✅ | `InjectionStateMachine` 通过 `com.macosasr.injection` 串行队列执行退格/打字；主线程只入队 |
 | P2-4 按需开麦 | ✅ | 启动校准后关闭麦克风；session start/stop 控制 InputStream |
@@ -55,7 +55,8 @@ Quit（⌘Q）关闭 App **并** shutdown daemon。
 | 参数 | SDD 默认 | 当前 |
 |------|----------|------|
 | partial_interval | 0.25s | **0.5s**（`MACOSASR_PARTIAL_INTERVAL` 可覆盖） |
-| partial_max_audio | — | **8.0s**；超过后暂停 partial，等待 final |
+| partial_max_audio | — | **8.0s**；到期滚动提交当前段 final，并继续新一句 partial |
+| partial_roll_min / partial_roll_silence | — | **8.0s / 0.40s**；8 秒前不因短换气切句，到期优先在静音处切 |
 | 识别语言 | Chinese | Settings…；持久化 Application Support |
 | ASR 模型 | Qwen3-ASR-0.6B | Settings…；默认 `mlx-community/Qwen3-ASR-0.6B-8bit`，可选 `mlx-community/Qwen3-ASR-1.7B-8bit` |
 | 触发方式 | Fn+V PTT（P1） | **⌥Z Toggle**（全局 + 菜单）；菜单 Start/Stop 仍可用 |
@@ -79,6 +80,7 @@ Quit（⌘Q）关闭 App **并** shutdown daemon。
 | 2026-06-12 | P0 review hardening：模型 preset 去本机路径、Quit 退出兜底、`utterance_id` 语义修正、删除空实验目录 |
 | 2026-06-12 | P1-1 daemon 自愈：`terminationHandler`、send/read failure 回调、错误态重启与限流 |
 | 2026-06-12 | P1-3 partial 限流：8s 后停止整句重复推理，保留 final 修正 |
+| 2026-08-18 | 长句滚动提交：8s 左右提交当前段并继续听写；实机 10s/18s 长口述未再出现连续卡顿，准确率无明显下降 |
 | 2026-06-12 | P2-3 后台注入：partial/final/filter 只入队，退格/打字和 pending 状态收敛到专用串行队列 |
 | 2026-06-15 | P2-1/P2-4：用户输入保护；启动校准后关麦，听写 session 按需开关麦克风 |
 

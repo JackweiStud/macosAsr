@@ -13,14 +13,58 @@ from asr.run_utils import DEFAULT_DAEMON_LOG, PROJECT_ROOT, setup_tee
 from asr_daemon.server import DaemonServer
 
 
+def _env_flag_enabled(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def apply_env_overrides(config: AsrConfig, environ: dict[str, str]) -> None:
+    context_env = environ.get("MACOSASR_CONTEXT")
+    if context_env is not None:
+        config.system_prompt = context_env.strip()
+
+    previous_final_context_env = environ.get("MACOSASR_PREVIOUS_FINAL_CONTEXT")
+    if previous_final_context_env is not None:
+        config.previous_final_context_enabled = _env_flag_enabled(previous_final_context_env)
+
+    previous_final_context_chars_env = environ.get("MACOSASR_PREVIOUS_FINAL_CONTEXT_CHARS")
+    if previous_final_context_chars_env:
+        config.previous_final_context_chars = max(0, int(previous_final_context_chars_env))
+
+    final_audio_trim_env = environ.get("MACOSASR_FINAL_AUDIO_TRIM")
+    if final_audio_trim_env is not None:
+        config.final_audio_trim_enabled = _env_flag_enabled(final_audio_trim_env)
+
+    final_trailing_silence_keep_env = environ.get("MACOSASR_FINAL_TRAILING_SILENCE_KEEP")
+    if final_trailing_silence_keep_env:
+        config.final_trailing_silence_keep_seconds = max(0.0, float(final_trailing_silence_keep_env))
+
     partial_env = environ.get("MACOSASR_PARTIAL_INTERVAL")
     if partial_env:
         config.partial_interval_seconds = float(partial_env)
 
+    partial_max_env = environ.get("MACOSASR_PARTIAL_MAX_AUDIO")
+    if partial_max_env:
+        config.partial_max_audio_seconds = max(0.0, float(partial_max_env))
+
+    partial_roll_min_env = environ.get("MACOSASR_PARTIAL_ROLL_MIN")
+    if partial_roll_min_env:
+        config.partial_roll_min_seconds = max(0.0, float(partial_roll_min_env))
+
+    partial_roll_silence_env = environ.get("MACOSASR_PARTIAL_ROLL_SILENCE")
+    if partial_roll_silence_env:
+        config.partial_roll_silence_seconds = max(0.0, float(partial_roll_silence_env))
+
     vad_end_env = environ.get("MACOSASR_VAD_END_SILENCE")
     if vad_end_env:
         config.vad_end_silence_seconds = float(vad_end_env)
+
+    vad_soft_max_env = environ.get("MACOSASR_VAD_SOFT_MAX_UTTERANCE")
+    if vad_soft_max_env:
+        config.vad_soft_max_utterance_seconds = max(0.0, float(vad_soft_max_env))
+
+    vad_soft_break_env = environ.get("MACOSASR_VAD_SOFT_BREAK_SILENCE")
+    if vad_soft_break_env:
+        config.vad_soft_break_silence_seconds = max(0.0, float(vad_soft_break_env))
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

@@ -102,6 +102,21 @@ final class DaemonManager {
         state = .ready
     }
 
+    /// 把设置页的断句等待 / live 刷新推到已运行的 daemon（不重启、不换模型）。
+    func pushRuntimeDictationSettings() {
+        guard clientConnected else { return }
+        client.send(
+            cmd: "config_update",
+            extra: [
+                "partial_interval_seconds": ConfigManager.shared.partialIntervalSeconds,
+                "vad_end_silence_seconds": ConfigManager.shared.vadEndSilenceSeconds,
+            ]
+        )
+        AppLogger.log(
+            "config_update pushed partial=\(ConfigManager.shared.partialIntervalSeconds) vad_end=\(ConfigManager.shared.vadEndSilenceSeconds)"
+        )
+    }
+
     /// App 退出时结束 session、通知 daemon shutdown 并断开连接
     func shutdown() {
         isShuttingDown = true
@@ -346,6 +361,7 @@ final class DaemonManager {
             switch result {
             case let .success(event):
                 if event.modelLoaded == true, event.calibrated == true {
+                    self.pushRuntimeDictationSettings()
                     completion(.success(()))
                 } else {
                     DispatchQueue.global().asyncAfter(deadline: .now() + 1) {

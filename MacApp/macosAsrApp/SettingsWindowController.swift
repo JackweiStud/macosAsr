@@ -11,7 +11,7 @@ final class SettingsWindowController: NSWindowController {
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 310),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 330),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -86,7 +86,7 @@ final class SettingsWindowController: NSWindowController {
         partialIntervalPopUp.target = self
         partialIntervalPopUp.action = #selector(advancedSettingChanged(_:))
 
-        let hint = NSTextField(wrappingLabelWithString: "Changes apply the next time the app starts the ASR daemon. Restart the app if it is already ready.")
+        let hint = NSTextField(wrappingLabelWithString: "Sentence end wait and live text refresh apply immediately. Changing the ASR model requires restarting the app.")
         hint.font = NSFont.systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
         hint.translatesAutoresizingMaskIntoConstraints = false
@@ -185,6 +185,7 @@ final class SettingsWindowController: NSWindowController {
                 partialIntervalSeconds: partial,
                 vadEndSilenceSeconds: vad
             )
+            DaemonManager.shared.pushRuntimeDictationSettings()
         } catch {
             AppLogger.log("config_save_failed \(error.localizedDescription)", level: "ERROR")
             reloadFromConfig()

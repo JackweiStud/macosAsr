@@ -121,6 +121,7 @@ def stream_utterance_text(model, blocks: list[AudioBlock], config: AsrConfig) ->
     for result in model.stream_transcribe(
         audio_wave,
         language=config.language,
+        system_prompt=config.system_prompt or None,
         chunk_duration=config.stream_chunk_duration,
         min_chunk_duration=config.stream_min_chunk_duration,
         verbose=False,
@@ -141,6 +142,7 @@ def generate_utterance_text(model, blocks: list[AudioBlock], config: AsrConfig) 
     result = model.generate(
         audio_wave,
         language=config.language,
+        system_prompt=config.system_prompt or None,
         chunk_duration=config.stream_chunk_duration,
         min_chunk_duration=config.stream_min_chunk_duration,
         verbose=False,

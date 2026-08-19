@@ -26,6 +26,8 @@ class SessionController(EventCallback):
         self._config = config
         self._emit = emit
         self._session_id: str | None = None
+        self._base_system_prompt = config.system_prompt
+        self._previous_final_text = ""
 
     @property
     def session_id(self) -> str | None:
@@ -39,6 +41,7 @@ class SessionController(EventCallback):
         if language:
             self._config.language = language
 
+        self._reset_previous_final_context()
         self._session_id = f"s-{uuid.uuid4().hex[:8]}"
         self._engine.start_recording()
         self._engine.set_listening(True)
@@ -60,6 +63,7 @@ class SessionController(EventCallback):
         self._engine.set_listening(False)
         self._engine.flush_on_stop()
         self._engine.stop_recording()
+        self._reset_previous_final_context()
         self._session_id = None
         self._emit(
             {
@@ -97,6 +101,7 @@ class SessionController(EventCallback):
                 "ts": time.time(),
             }
         )
+        self._update_previous_final_context(text)
 
     def on_filtered(self, utterance_id: int, text: str, reason: str) -> None:
         if self._session_id is None:
@@ -134,3 +139,28 @@ class SessionController(EventCallback):
             "recording_active": self._engine.recording_active,
             "language": self._config.language,
         }
+
+    def _reset_previous_final_context(self) -> None:
+        self._previous_final_text = ""
+        self._apply_dynamic_system_prompt()
+
+    def _update_previous_final_context(self, text: str) -> None:
+        if not self._config.previous_final_context_enabled:
+            return
+
+        limit = max(0, self._config.previous_final_context_chars)
+        normalized = " ".join(text.strip().split())
+        self._previous_final_text = normalized[-limit:] if limit > 0 else ""
+        self._apply_dynamic_system_prompt()
+        logger.debug("previous final context chars=%s", len(self._previous_final_text))
+
+    def _apply_dynamic_system_prompt(self) -> None:
+        if not self._config.previous_final_context_enabled or not self._previous_final_text:
+            self._config.system_prompt = self._base_system_prompt
+            return
+
+        parts = []
+        if self._base_system_prompt:
+            parts.append(self._base_system_prompt)
+        parts.append(f"前文：{self._previous_final_text}")
+        self._config.system_prompt = "\n".join(parts)
