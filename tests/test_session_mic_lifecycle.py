@@ -31,6 +31,12 @@ class _FakeEngine:
         self.calls.append(("flush_on_stop", None))
 
 
+class _BoomEngine(_FakeEngine):
+    def start_recording(self) -> None:
+        self.calls.append(("start_recording", None))
+        raise RuntimeError("Internal PortAudio error [PaErrorCode -9986]")
+
+
 class SessionMicLifecycleTests(unittest.TestCase):
     def test_session_start_opens_mic_before_listening(self) -> None:
         engine = _FakeEngine()
@@ -45,6 +51,17 @@ class SessionMicLifecycleTests(unittest.TestCase):
                 ("set_listening", True),
             ],
         )
+
+    def test_session_start_does_not_keep_session_when_mic_open_fails(self) -> None:
+        engine = _BoomEngine()
+        controller = SessionController(engine, AsrConfig(), lambda event: None)  # type: ignore[arg-type]
+
+        with self.assertRaises(RuntimeError):
+            controller.start_session()
+
+        self.assertIsNone(controller.session_id)
+        self.assertFalse(engine.is_listening())
+        self.assertEqual(engine.calls, [("start_recording", None)])
 
     def test_session_stop_flushes_then_closes_mic(self) -> None:
         engine = _FakeEngine()

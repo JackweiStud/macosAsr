@@ -4,6 +4,7 @@ import Cocoa
 final class LiveDictationController {
     private let stateMachine: InjectionStateMachine
     private var isListening = false
+    private var onStartFailure: ((String) -> Void)?
 
     init(stateMachine: InjectionStateMachine) {
         self.stateMachine = stateMachine
@@ -18,6 +19,7 @@ final class LiveDictationController {
     /// onFailure：daemon 启动失败或超时（已在主线程）
     func start(onFailure: @escaping (String) -> Void) {
         guard !isListening else { return }
+        onStartFailure = onFailure
         DaemonManager.shared.startSession { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -27,6 +29,7 @@ final class LiveDictationController {
                     self.isListening = true
                     AppLogger.log("live_dictation_started")
                 case let .failure(error):
+                    self.onStartFailure = nil
                     AppLogger.log("live_dictation_start_failed \(error.localizedDescription)", level: "ERROR")
                     onFailure(error.localizedDescription)
                 }
@@ -36,6 +39,7 @@ final class LiveDictationController {
 
     func stop() {
         guard isListening else { return }
+        onStartFailure = nil
         DaemonManager.shared.stopSession()
         isListening = false
         AppLogger.log("live_dictation_stop")
@@ -60,12 +64,26 @@ final class LiveDictationController {
             stateMachine.onFiltered()
         case "session_stopped":
             isListening = false
+            onStartFailure = nil
             stateMachine.onSessionStopped()
             DaemonManager.shared.notifySessionStoppedFromDaemon()
+        case "warning":
+            AppLogger.log("daemon_warning \(event.message ?? "?")", level: "WARN")
         case "error":
             AppLogger.log("daemon_error \(event.message ?? "?")", level: "ERROR")
+            abortListeningAfterDaemonError(event.message ?? "ASR daemon error")
         default:
             break
+        }
+    }
+
+    private func abortListeningAfterDaemonError(_ message: String) {
+        isListening = false
+        stateMachine.onSessionStopped()
+        DaemonManager.shared.revertListeningAfterError()
+        if let onStartFailure {
+            self.onStartFailure = nil
+            onStartFailure(message)
         }
     }
 }

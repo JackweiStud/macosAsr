@@ -24,6 +24,9 @@ class _Callback:
     def on_error(self, message: str) -> None:
         pass
 
+    def on_warning(self, message: str, code: str) -> None:
+        pass
+
 
 class _FakeStream:
     def __init__(self, **kwargs) -> None:
@@ -50,6 +53,43 @@ class _FakeSoundDevice:
         stream = _FakeStream(**kwargs)
         self.streams.append(stream)
         return stream
+
+    def query_devices(self) -> list:
+        return []
+
+
+class _FailingSoundDevice:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def InputStream(self, **kwargs) -> _FakeStream:
+        self.calls += 1
+        raise RuntimeError("Internal PortAudio error [PaErrorCode -9986]")
+
+    def query_devices(self) -> list:
+        return []
+
+
+class _FlakySoundDevice(_FakeSoundDevice):
+    def __init__(self, fail_times: int = 2) -> None:
+        super().__init__()
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def InputStream(self, **kwargs) -> _FakeStream:
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise RuntimeError("Internal PortAudio error [PaErrorCode -9986]")
+        return super().InputStream(**kwargs)
+
+
+class _WarningCallback(_Callback):
+    def __init__(self) -> None:
+        super().__init__()
+        self.warnings: list[tuple[str, str]] = []
+
+    def on_warning(self, message: str, code: str) -> None:
+        self.warnings.append((code, message))
 
 
 class PartialEngineMicLifecycleGuardrailTests(unittest.TestCase):
@@ -87,6 +127,49 @@ class PartialEngineMicLifecycleGuardrailTests(unittest.TestCase):
             self.assertFalse(engine.recording_active)
             self.assertTrue(fake_sd.streams[0].stopped)
             self.assertTrue(fake_sd.streams[0].closed)
+
+    def test_open_mic_stream_retries_then_succeeds(self) -> None:
+        fake_sd = _FlakySoundDevice(fail_times=2)
+        engine = PartialEngine(AsrConfig(noise_calibration_seconds=0), _Callback())
+        engine._mic_open_retry_seconds = 0.0
+
+        with (
+            patch.object(partial_engine, "sd", fake_sd),
+            patch.object(partial_engine, "require_runtime_dependencies"),
+        ):
+            engine._configure_pre_roll()
+            engine._open_mic_stream()
+            self.assertEqual(fake_sd.calls, 3)
+            self.assertTrue(engine.recording_active)
+
+    def test_open_mic_stream_raises_after_retries(self) -> None:
+        fake_sd = _FailingSoundDevice()
+        engine = PartialEngine(AsrConfig(noise_calibration_seconds=0), _Callback())
+        engine._mic_open_retry_seconds = 0.0
+
+        with (
+            patch.object(partial_engine, "sd", fake_sd),
+            patch.object(partial_engine, "require_runtime_dependencies"),
+        ):
+            engine._configure_pre_roll()
+            with self.assertRaises(RuntimeError):
+                engine._open_mic_stream()
+            self.assertEqual(fake_sd.calls, 3)
+            self.assertFalse(engine.recording_active)
+
+    def test_silent_mic_warns_once_after_listen_window(self) -> None:
+        callback = _WarningCallback()
+        engine = PartialEngine(AsrConfig(noise_calibration_seconds=0), callback)
+        engine.set_listening(True)
+        engine._listen_started_at -= 4.0
+        engine._last_audio_at -= 3.0
+        engine._max_listen_rms = 0.0
+
+        engine._maybe_warn_silent_mic()
+        engine._maybe_warn_silent_mic()
+
+        self.assertEqual(len(callback.warnings), 1)
+        self.assertEqual(callback.warnings[0][0], "mic_silent")
 
 
 if __name__ == "__main__":

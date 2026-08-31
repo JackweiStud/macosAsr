@@ -63,5 +63,35 @@ class SettingsHotUpdateGuardrailTests(unittest.TestCase):
         self.assertIn("pushRuntimeDictationSettings()", source)
 
 
+class SessionStartMicErrorTests(unittest.TestCase):
+    def test_session_start_returns_error_instead_of_raising(self) -> None:
+        class _BoomSession:
+            def start_session(self, language=None) -> str:
+                raise RuntimeError("Internal PortAudio error [PaErrorCode -9986]")
+
+        server = DaemonServer(Path("/tmp/macosasr-test.sock"), AsrConfig(), skip_model=True)
+        server._session = _BoomSession()  # type: ignore[assignment]
+
+        events = server._dispatch({"protocol": 1, "cmd": "session_start", "language": "Chinese"})
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "error")
+        self.assertEqual(events[0]["code"], "mic_open_failed")
+        self.assertIn("PortAudio", events[0]["message"])
+
+    def test_client_handler_catches_dispatch_exceptions(self) -> None:
+        source = Path(__file__).resolve().parents[1].joinpath("asr_daemon/server.py").read_text()
+        self.assertIn('"code": "dispatch_failed"', source)
+        self.assertIn("session_start failed", source)
+
+    def test_live_dictation_reverts_on_mic_error(self) -> None:
+        source = Path(__file__).resolve().parents[1].joinpath(
+            "MacApp/macosAsrApp/LiveDictationController.swift"
+        ).read_text()
+        self.assertIn("revertListeningAfterError", source)
+        self.assertIn('case "warning":', source)
+        self.assertIn("abortListeningAfterDaemonError", source)
+
+
 if __name__ == "__main__":
     unittest.main()

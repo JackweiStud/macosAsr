@@ -42,8 +42,12 @@ class SessionController(EventCallback):
             self._config.language = language
 
         self._reset_previous_final_context()
+        try:
+            self._engine.start_recording()
+        except Exception:
+            logger.exception("start_recording failed")
+            raise
         self._session_id = f"s-{uuid.uuid4().hex[:8]}"
-        self._engine.start_recording()
         self._engine.set_listening(True)
         self._emit(
             {
@@ -124,6 +128,16 @@ class SessionController(EventCallback):
                 "protocol": 1,
                 "type": "error",
                 "message": message,
+            }
+        )
+
+    def on_warning(self, message: str, code: str = "") -> None:
+        self._emit(
+            {
+                "protocol": 1,
+                "type": "warning",
+                "message": message,
+                "code": code,
             }
         )
 

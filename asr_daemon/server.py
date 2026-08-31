@@ -46,6 +46,10 @@ class _CallbackBridge(EventCallback):
         if self._target:
             self._target.on_error(message)
 
+    def on_warning(self, message: str, code: str = "") -> None:
+        if self._target:
+            self._target.on_warning(message, code)
+
 
 class DaemonServer:
     def __init__(self, socket_path: Path, config: AsrConfig, *, skip_model: bool = False) -> None:
@@ -162,7 +166,21 @@ class DaemonServer:
                     except json.JSONDecodeError as exc:
                         self._send(conn, {"protocol": 1, "type": "error", "message": f"invalid json: {exc}"})
                         continue
-                    for event in self._dispatch(msg):
+                    try:
+                        events = self._dispatch(msg)
+                    except Exception as exc:
+                        logger.exception("dispatch failed")
+                        self._send(
+                            conn,
+                            {
+                                "protocol": 1,
+                                "type": "error",
+                                "message": str(exc),
+                                "code": "dispatch_failed",
+                            },
+                        )
+                        continue
+                    for event in events:
                         self._send(conn, event)
         except OSError as exc:
             logger.debug("client disconnected: %s", exc)
@@ -243,7 +261,18 @@ class DaemonServer:
             return [{"protocol": 1, "type": "error", "message": "model not loaded", "code": "no_model"}]
 
         if cmd == "session_start":
-            self._session.start_session(language=msg.get("language"))
+            try:
+                self._session.start_session(language=msg.get("language"))
+            except Exception as exc:
+                logger.exception("session_start failed")
+                return [
+                    {
+                        "protocol": 1,
+                        "type": "error",
+                        "message": str(exc),
+                        "code": "mic_open_failed",
+                    }
+                ]
             return []
         if cmd == "session_stop":
             self._session.stop_session()

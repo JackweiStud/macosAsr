@@ -27,6 +27,9 @@ class _RecordingCallback:
     def on_error(self, message: str) -> None:
         self.events.append(("error", -1, message))
 
+    def on_warning(self, message: str, code: str) -> None:
+        self.events.append(("warning", -1, f"{code}:{message}"))
+
 
 class PartialEngineUtteranceIdTests(unittest.TestCase):
     def test_partial_and_final_events_share_one_utterance_id(self) -> None:

@@ -6,6 +6,7 @@ struct DaemonEvent {
     let raw: [String: Any]
     var text: String? { raw["text"] as? String }
     var message: String? { raw["message"] as? String }
+    var code: String? { raw["code"] as? String }
     var modelLoaded: Bool? { raw["model_loaded"] as? Bool }
     var calibrated: Bool? { raw["calibrated"] as? Bool }
     var warmedUp: Bool? { raw["warmed_up"] as? Bool }

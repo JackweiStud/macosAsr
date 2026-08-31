@@ -38,6 +38,7 @@ class EventCallback(Protocol):
     def on_final(self, utterance_id: int, text: str) -> None: ...
     def on_filtered(self, utterance_id: int, text: str, reason: str) -> None: ...
     def on_error(self, message: str) -> None: ...
+    def on_warning(self, message: str, code: str) -> None: ...
 
 
 @dataclasses.dataclass
@@ -85,6 +86,12 @@ class PartialEngine:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._stream_lock = threading.Lock()
+        self._mic_open_attempts = 3
+        self._mic_open_retry_seconds = 0.4
+        self._listen_started_at = 0.0
+        self._last_audio_at = 0.0
+        self._max_listen_rms = 0.0
+        self._mic_silent_warned = False
 
     @property
     def model_loaded(self) -> bool:
@@ -110,6 +117,12 @@ class PartialEngine:
     def set_listening(self, listening: bool) -> None:
         with self._lock:
             self._listening = listening
+            if listening:
+                now = time.perf_counter()
+                self._listen_started_at = now
+                self._last_audio_at = now
+                self._max_listen_rms = 0.0
+                self._mic_silent_warned = False
         logger.info("listening=%s", listening)
 
     def is_listening(self) -> bool:
@@ -138,7 +151,10 @@ class PartialEngine:
             return
 
         self._configure_pre_roll()
-        self._open_mic_stream()
+        try:
+            self._open_mic_stream()
+        except Exception:
+            logger.exception("mic stream open failed at worker start; model will still load")
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._worker_loop, name="partial-engine-worker", daemon=True)
         self._thread.start()
@@ -157,35 +173,76 @@ class PartialEngine:
             if self._stream is not None:
                 return
 
-            cfg = self._config
-            block_seconds = cfg.input_block_seconds
-            blocksize = max(160, int(cfg.sample_rate * block_seconds))
+        last_error: Exception | None = None
+        attempts = max(1, self._mic_open_attempts)
+        for attempt in range(1, attempts + 1):
+            stream = None
+            try:
+                stream = self._create_input_stream()
+                stream.start()  # type: ignore[union-attr]
+                with self._stream_lock:
+                    self._stream = stream
+                blocksize = max(160, int(self._config.sample_rate * self._config.input_block_seconds))
+                logger.info("mic stream opened blocksize=%s attempt=%s", blocksize, attempt)
+                return
+            except Exception as exc:
+                last_error = exc
+                logger.warning("mic open failed attempt=%s/%s: %s", attempt, attempts, exc)
+                if stream is not None:
+                    try:
+                        stream.close()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                if attempt < attempts:
+                    self._refresh_audio_devices()
+                    time.sleep(max(0.0, self._mic_open_retry_seconds))
+        assert last_error is not None
+        raise last_error
 
-            def callback(indata, frames, time_info, status):  # pragma: no cover
-                if status:
-                    logger.warning("audio status: %s", status)
-                block = AudioBlock(
-                    samples=indata[:, 0].astype(np.float32, copy=True),
-                    captured_at=time.perf_counter(),
-                )
-                try:
-                    self._audio_queue.put_nowait(block)
-                except queue.Full:
-                    pass
+    def _create_input_stream(self):
+        assert sd is not None
+        cfg = self._config
+        block_seconds = cfg.input_block_seconds
+        blocksize = max(160, int(cfg.sample_rate * block_seconds))
 
-            input_kwargs: dict = {
-                "samplerate": cfg.sample_rate,
-                "channels": 1,
-                "dtype": "float32",
-                "blocksize": blocksize,
-                "callback": callback,
-            }
-            if cfg.device is not None:
-                input_kwargs["device"] = cfg.device
+        def callback(indata, frames, time_info, status):  # pragma: no cover
+            if status:
+                logger.warning("audio status: %s", status)
+            block = AudioBlock(
+                samples=indata[:, 0].astype(np.float32, copy=True),
+                captured_at=time.perf_counter(),
+            )
+            try:
+                self._audio_queue.put_nowait(block)
+            except queue.Full:
+                pass
 
-            self._stream = sd.InputStream(**input_kwargs)
-            self._stream.start()  # type: ignore[union-attr]
-            logger.info("mic stream opened blocksize=%s", blocksize)
+        input_kwargs: dict = {
+            "samplerate": cfg.sample_rate,
+            "channels": 1,
+            "dtype": "float32",
+            "blocksize": blocksize,
+            "callback": callback,
+        }
+        if cfg.device is not None:
+            input_kwargs["device"] = cfg.device
+        return sd.InputStream(**input_kwargs)
+
+    def _refresh_audio_devices(self) -> None:
+        if sd is None:
+            return
+        try:
+            sd.query_devices()
+        except Exception:
+            logger.debug("query_devices after mic open failure failed", exc_info=True)
+        terminate = getattr(sd, "_terminate", None)
+        initialize = getattr(sd, "_initialize", None)
+        if callable(terminate) and callable(initialize):
+            try:
+                terminate()
+                initialize()
+            except Exception:
+                logger.debug("portaudio reinit failed", exc_info=True)
 
     def _close_mic_stream(self) -> None:
         with self._stream_lock:
@@ -242,6 +299,7 @@ class PartialEngine:
             while not self._stop_event.is_set():
                 self._drain_control_queue()
                 self._drain_audio_blocks()
+                self._maybe_warn_silent_mic()
                 if not self.is_listening():
                     time.sleep(0.01)
                     continue
@@ -315,6 +373,25 @@ class PartialEngine:
             cap = cfg.noise_max_threshold if cfg.noise_max_threshold > 0 else raw
             self._active_threshold = min(raw, cap)
 
+    def _maybe_warn_silent_mic(self) -> None:
+        if not self.is_listening() or self._mic_silent_warned:
+            return
+        now = time.perf_counter()
+        if self._listen_started_at <= 0 or now - self._listen_started_at < 3.0:
+            return
+        no_audio = now - self._last_audio_at >= 2.0
+        silent = self._max_listen_rms < 1e-4
+        if not (no_audio or silent):
+            return
+        self._mic_silent_warned = True
+        message = (
+            "microphone producing no signal "
+            f"max_rms={self._max_listen_rms:.6f} "
+            f"audio_age={now - self._last_audio_at:.1f}s"
+        )
+        logger.warning(message)
+        self._callback.on_warning(message, "mic_silent")
+
     def _drain_audio_blocks(self) -> None:
         cfg = self._config
         listening = self.is_listening()
@@ -328,6 +405,10 @@ class PartialEngine:
 
             block_rms = audio_rms(block.samples)
             self._pre_roll.append(block)
+            if listening:
+                self._last_audio_at = time.perf_counter()
+                if block_rms > self._max_listen_rms:
+                    self._max_listen_rms = block_rms
 
             if not listening:
                 continue

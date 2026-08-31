@@ -24,6 +24,7 @@ final class DaemonManager {
     private let restartBackoffSeconds: TimeInterval = 2.0
     private var lastRestartFailureAt = Date.distantPast
     private var pendingWarmUpAfterBackoff = false
+    private var sessionStartEpoch = 0
 
     private(set) var state: DaemonState = .idle {
         didSet {
@@ -97,6 +98,7 @@ final class DaemonManager {
     }
 
     func stopSession() {
+        sessionStartEpoch += 1
         guard state == .listening else { return }
         client.send(cmd: "session_stop")
         state = .ready
@@ -149,8 +151,15 @@ final class DaemonManager {
         AppLogger.log("daemon_shutdown")
     }
 
+    /// session 因开麦失败等错误结束时调用：取消 in-flight 的 session_start 成功回调
+    func revertListeningAfterError() {
+        sessionStartEpoch += 1
+        if state == .listening { state = .ready }
+    }
+
     /// session_stopped 事件回调时由 LiveDictationController 调用
     func notifySessionStoppedFromDaemon() {
+        sessionStartEpoch += 1
         if state == .listening { state = .ready }
     }
 
@@ -233,9 +242,11 @@ final class DaemonManager {
     }
 
     private func sendSessionStart(language: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        let epoch = sessionStartEpoch
         client.send(cmd: "session_start", extra: ["language": language]) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
+                guard epoch == self.sessionStartEpoch else { return }
                 switch result {
                 case .success:
                     self.state = .listening
