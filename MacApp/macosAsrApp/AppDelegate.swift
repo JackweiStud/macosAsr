@@ -68,11 +68,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupHotkeyMonitor() {
+        let dictation = liveDictation
         hotkeyMonitor.onTrigger = { [weak self] in
             self?.toggleLiveDictation()
         }
-        hotkeyMonitor.onUserInput = { [weak self] in
-            self?.liveDictation.notifyUserInputInterrupted()
+        hotkeyMonitor.onUserInput = { [weak dictation] in
+            dictation?.notifyUserInputInterrupted()
         }
         if !hotkeyMonitor.isInputMonitoringGranted {
             _ = hotkeyMonitor.requestInputMonitoringAccess()

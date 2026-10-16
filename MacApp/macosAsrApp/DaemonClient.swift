@@ -10,6 +10,15 @@ struct DaemonEvent {
     var modelLoaded: Bool? { raw["model_loaded"] as? Bool }
     var calibrated: Bool? { raw["calibrated"] as? Bool }
     var warmedUp: Bool? { raw["warmed_up"] as? Bool }
+    var sessionID: String? { raw["session_id"] as? String }
+    var utterance: DictationUtterance? {
+        guard let sessionID, !sessionID.isEmpty,
+              let utteranceID = raw["utterance_id"] as? Int,
+              let startedAt = raw["utterance_started_at"] as? Double,
+              utteranceID > 0, startedAt.isFinite, startedAt > 0
+        else { return nil }
+        return DictationUtterance(sessionID: sessionID, utteranceID: utteranceID, startedAt: startedAt)
+    }
 }
 
 /// Unix socket JSON-lines client (SDD §5). Keeps one connection for session broadcasts.

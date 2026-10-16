@@ -104,6 +104,11 @@ final class DaemonManager {
         state = .ready
     }
 
+    func discardCurrentUtterance(sessionID: String, before timestamp: TimeInterval) {
+        guard clientConnected else { return }
+        client.send(cmd: "discard_utterance", extra: ["session_id": sessionID, "before": timestamp])
+    }
+
     /// 把设置页的断句等待 / live 刷新推到已运行的 daemon（不重启、不换模型）。
     func pushRuntimeDictationSettings() {
         guard clientConnected else { return }

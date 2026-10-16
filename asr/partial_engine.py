@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 
 
 class EventCallback(Protocol):
-    def on_partial(self, utterance_id: int, text: str) -> None: ...
-    def on_final(self, utterance_id: int, text: str) -> None: ...
-    def on_filtered(self, utterance_id: int, text: str, reason: str) -> None: ...
+    def on_partial(self, utterance_id: int, text: str, utterance_started_at: float) -> None: ...
+    def on_final(self, utterance_id: int, text: str, utterance_started_at: float) -> None: ...
+    def on_filtered(self, utterance_id: int, text: str, reason: str, utterance_started_at: float) -> None: ...
     def on_error(self, message: str) -> None: ...
     def on_warning(self, message: str, code: str) -> None: ...
 
@@ -47,11 +47,19 @@ class _UtteranceState:
     blocks: list[AudioBlock]
     started_at: float
     last_voice_at: float
+    # First block of the continuous voiced run, excluding pre-roll silence.
+    speech_started_at: float
+    speech_started_at_unix: float | None = None
     silence_run_seconds: float = 0.0
     last_partial_at: float = 0.0
     partial_count: int = 0
     first_partial_at: float | None = None
     last_partial_text: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class _DiscardUtterance:
+    before: float
 
 
 class PartialEngine:
@@ -70,12 +78,17 @@ class PartialEngine:
         self._config = config
         self._callback = callback
         self._audio_queue: queue.Queue[AudioBlock] = queue.Queue(maxsize=1024)
-        self._control_queue: queue.Queue[tuple[str, threading.Event] | str] = queue.Queue()
+        self._control_queue: queue.Queue[tuple[str, threading.Event] | _DiscardUtterance] = queue.Queue()
+        # AudioBlock timestamps use perf_counter; IPC timestamps use UNIX seconds.
+        self._clock_offset: Callable[[], float] = lambda: time.time() - time.perf_counter()
+        self._discard_before = float("-inf")
+        self._pending_audio_blocks: Deque[AudioBlock] = deque()
         self._listening = False
         self._utterance_id = 0
         self._utterance: Optional[_UtteranceState] = None
         self._pre_roll: Deque[AudioBlock] = deque()
         self._voiced_run_seconds = 0.0
+        self._voiced_run_started_at: float | None = None
         self._active_threshold = 0.0
         self._measured_noise_floor = 0.0
         self._calibrated = False
@@ -135,6 +148,10 @@ class PartialEngine:
         self._control_queue.put(("flush", done))
         if not done.wait(timeout=30.0):
             logger.warning("flush_on_stop timed out waiting for worker")
+
+    def discard_utterance(self, before: float) -> None:
+        """Queue an input reset without stopping the microphone or touching MLX here."""
+        self._control_queue.put(_DiscardUtterance(before=before))
 
     def start_recording(self) -> None:
         self._clear_audio_state()
@@ -262,6 +279,8 @@ class PartialEngine:
             self._utterance = None
             self._pre_roll.clear()
             self._voiced_run_seconds = 0.0
+            self._voiced_run_started_at = None
+            self._pending_audio_blocks.clear()
         while True:
             try:
                 self._audio_queue.get_nowait()
@@ -303,6 +322,8 @@ class PartialEngine:
                 if not self.is_listening():
                     time.sleep(0.01)
                     continue
+                # A discard may have arrived while draining a long audio backlog.
+                self._drain_control_queue()
                 self._process_active_utterance(max(0.05, cfg.vad_end_silence_seconds))
                 time.sleep(0.01)
         except Exception as exc:
@@ -315,6 +336,9 @@ class PartialEngine:
                 cmd = self._control_queue.get_nowait()
             except queue.Empty:
                 break
+            if isinstance(cmd, _DiscardUtterance):
+                self._discard_utterance_before(cmd.before)
+                continue
             if isinstance(cmd, tuple) and cmd[0] == "flush":
                 _, done = cmd
                 with self._lock:
@@ -322,15 +346,49 @@ class PartialEngine:
                     self._utterance = None
                     self._pre_roll.clear()
                     self._voiced_run_seconds = 0.0
+                    self._voiced_run_started_at = None
                 if utterance is not None:
                     self._finalize_utterance(utterance, force_short=True, reason="flush")
                 done.set()
+
+    def _discard_utterance_before(self, before: float) -> None:
+        """Worker-only reset; preserve audio captured after the user interaction."""
+        cutoff = before - self._clock_offset()
+        with self._lock:
+            if cutoff <= self._discard_before:
+                return
+            self._discard_before = cutoff
+            utterance = self._utterance
+            replay: list[AudioBlock] = []
+            if utterance is not None and utterance.speech_started_at <= cutoff:
+                replay = [block for block in utterance.blocks if block.captured_at > cutoff]
+                self._utterance = None
+                self._pre_roll.clear()
+                self._voiced_run_seconds = 0.0
+                self._voiced_run_started_at = None
+            elif utterance is not None:
+                utterance.blocks = [block for block in utterance.blocks if block.captured_at > cutoff]
+            elif self._voiced_run_started_at is not None and self._voiced_run_started_at <= cutoff:
+                replay = [block for block in self._pre_roll if block.captured_at > cutoff]
+                self._pre_roll.clear()
+                self._voiced_run_seconds = 0.0
+                self._voiced_run_started_at = None
+
+            self._pre_roll = deque(
+                (block for block in self._pre_roll if block.captured_at > cutoff),
+                maxlen=self._pre_roll.maxlen,
+            )
+            # These frames precede audio still in the queue. Replaying them lets
+            # the next sentence start immediately, even during an in-flight ASR.
+            self._pending_audio_blocks.extendleft(reversed(replay))
+        logger.debug("utterance discarded before=%.6f replay_blocks=%s", before, len(replay))
 
     def _release_utterance(self) -> None:
         with self._lock:
             self._utterance = None
             self._pre_roll.clear()
             self._voiced_run_seconds = 0.0
+            self._voiced_run_started_at = None
 
     def _calibrate_noise(self, cfg: AsrConfig) -> None:
         if cfg.noise_calibration_seconds <= 0:
@@ -398,10 +456,15 @@ class PartialEngine:
         start_speech_threshold = max(cfg.input_block_seconds, cfg.vad_start_speech_seconds)
 
         while True:
-            try:
-                block = self._audio_queue.get_nowait()
-            except queue.Empty:
-                break
+            if self._pending_audio_blocks:
+                block = self._pending_audio_blocks.popleft()
+            else:
+                try:
+                    block = self._audio_queue.get_nowait()
+                except queue.Empty:
+                    break
+            if block.captured_at <= self._discard_before:
+                continue
 
             block_rms = audio_rms(block.samples)
             self._pre_roll.append(block)
@@ -417,6 +480,8 @@ class PartialEngine:
                 utterance = self._utterance
                 if utterance is None:
                     if block_rms >= self._active_threshold:
+                        if self._voiced_run_started_at is None:
+                            self._voiced_run_started_at = block.captured_at
                         self._voiced_run_seconds += len(block.samples) / float(cfg.sample_rate)
                         if self._voiced_run_seconds >= start_speech_threshold:
                             self._utterance_id += 1
@@ -425,11 +490,15 @@ class PartialEngine:
                                 blocks=list(self._pre_roll),
                                 started_at=self._pre_roll[0].captured_at if self._pre_roll else block.captured_at,
                                 last_voice_at=block.captured_at,
+                                speech_started_at=self._voiced_run_started_at,
+                                speech_started_at_unix=self._voiced_run_started_at + self._clock_offset(),
                             )
                             self._voiced_run_seconds = 0.0
+                            self._voiced_run_started_at = None
                             logger.debug("utterance started")
                     else:
                         self._voiced_run_seconds = 0.0
+                        self._voiced_run_started_at = None
                     continue
 
                 utterance.blocks.append(block)
@@ -452,27 +521,8 @@ class PartialEngine:
 
         utterance_seconds = sum(len(b.samples) for b in utterance.blocks) / float(cfg.sample_rate)
         roll_reason = self._utterance_roll_reason(utterance_seconds, utterance)
-        within_partial_window = (
-            cfg.partial_max_audio_seconds <= 0
-            or utterance_seconds <= cfg.partial_max_audio_seconds
-        )
-
-        if (
-            roll_reason is None
-            and utterance_seconds >= cfg.partial_min_audio_seconds
-            and within_partial_window
-            and now - utterance.last_partial_at >= cfg.partial_interval_seconds
-        ):
-            partial_call_at = time.perf_counter()
-            partial_text = stream_utterance_text(self._model, utterance.blocks, cfg)
-            utterance.last_partial_at = partial_call_at
-            if partial_text and partial_text != utterance.last_partial_text:
-                utterance.partial_count += 1
-                utterance.last_partial_text = partial_text
-                if utterance.first_partial_at is None:
-                    utterance.first_partial_at = partial_call_at
-                self._emit_partial(utterance.utterance_id, partial_text)
-
+        # Finalize before refreshing partial text to avoid transcribing the same
+        # audio twice when an utterance ends on a partial refresh tick.
         if utterance.silence_run_seconds >= end_silence_threshold:
             self._release_utterance()
             if utterance_seconds < cfg.vad_min_utterance_seconds:
@@ -497,10 +547,38 @@ class PartialEngine:
         if cfg.vad_max_utterance_seconds > 0 and utterance_seconds >= cfg.vad_max_utterance_seconds:
             self._release_utterance()
             self._finalize_utterance(utterance, reason="max_utterance")
+            return
 
-    def _emit_partial(self, uid: int, text: str) -> None:
-        logger.debug("partial u=%s len=%s", uid, len(text))
-        self._callback.on_partial(uid, text)
+        within_partial_window = (
+            cfg.partial_max_audio_seconds <= 0
+            or utterance_seconds <= cfg.partial_max_audio_seconds
+        )
+
+        if (
+            utterance_seconds >= cfg.partial_min_audio_seconds
+            and within_partial_window
+            and now - utterance.last_partial_at >= cfg.partial_interval_seconds
+        ):
+            partial_call_at = time.perf_counter()
+            partial_text = stream_utterance_text(self._model, utterance.blocks, cfg)
+            utterance.last_partial_at = partial_call_at
+            if partial_text and partial_text != utterance.last_partial_text:
+                utterance.partial_count += 1
+                utterance.last_partial_text = partial_text
+                if utterance.first_partial_at is None:
+                    utterance.first_partial_at = partial_call_at
+                self._emit_partial(utterance, partial_text)
+
+    def _emit_partial(self, utterance: _UtteranceState, text: str) -> None:
+        logger.debug("partial u=%s len=%s", utterance.utterance_id, len(text))
+        self._callback.on_partial(
+            utterance.utterance_id, text, self._utterance_timestamp(utterance)
+        )
+
+    def _utterance_timestamp(self, utterance: _UtteranceState) -> float:
+        if utterance.speech_started_at_unix is None:
+            utterance.speech_started_at_unix = utterance.speech_started_at + self._clock_offset()
+        return utterance.speech_started_at_unix
 
     def _finalize_utterance(
         self,
@@ -521,6 +599,7 @@ class PartialEngine:
         final_text = generate_utterance_text(self._model, final_blocks, cfg)
         final_ms = (time.perf_counter() - final_start) * 1000.0
         uid = utterance.utterance_id
+        utterance_started_at = self._utterance_timestamp(utterance)
         logger.info(
             "final_metrics u=%s reason=%s utterance_seconds=%.2f final_audio_seconds=%.2f "
             "trimmed_seconds=%.2f final_ms=%.1f partial_count=%s final_len=%s silence_seconds=%.2f",
@@ -538,12 +617,12 @@ class PartialEngine:
         if final_text and should_drop_final_text(final_text, cfg):
             reason = "filler_or_short"
             logger.debug("filtered u=%s reason=%s", uid, reason)
-            self._callback.on_filtered(uid, final_text, reason)
+            self._callback.on_filtered(uid, final_text, reason, utterance_started_at)
         elif final_text:
             logger.debug("final u=%s len=%s", uid, len(final_text))
-            self._callback.on_final(uid, final_text)
+            self._callback.on_final(uid, final_text, utterance_started_at)
         else:
-            self._callback.on_filtered(uid, "", "empty")
+            self._callback.on_filtered(uid, "", "empty", utterance_started_at)
 
     def _final_audio_blocks(self, utterance: _UtteranceState) -> list[AudioBlock]:
         cfg = self._config

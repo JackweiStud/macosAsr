@@ -134,9 +134,8 @@ final class GlobalHotkeyMonitor {
         }
 
         if type == .keyDown || type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
-            DispatchQueue.main.async { [weak self] in
-                self?.onUserInput?()
-            }
+            // Invalidate injection tokens immediately, before the click/key reaches the target app.
+            onUserInput?()
         }
         return false
     }

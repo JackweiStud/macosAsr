@@ -48,7 +48,6 @@ class SessionController(EventCallback):
             logger.exception("start_recording failed")
             raise
         self._session_id = f"s-{uuid.uuid4().hex[:8]}"
-        self._engine.set_listening(True)
         self._emit(
             {
                 "protocol": 1,
@@ -56,6 +55,7 @@ class SessionController(EventCallback):
                 "session_id": self._session_id,
             }
         )
+        self._engine.set_listening(True)
         logger.info("session_started id=%s lang=%s", self._session_id, self._config.language)
         return self._session_id
 
@@ -78,7 +78,13 @@ class SessionController(EventCallback):
         )
         logger.info("session_stopped id=%s", sid)
 
-    def on_partial(self, utterance_id: int, text: str) -> None:
+    def discard_utterance(self, session_id: str, before: float) -> bool:
+        if self._session_id is None or session_id != self._session_id:
+            return False
+        self._engine.discard_utterance(before)
+        return True
+
+    def on_partial(self, utterance_id: int, text: str, utterance_started_at: float) -> None:
         if self._session_id is None:
             return
         self._emit(
@@ -87,12 +93,13 @@ class SessionController(EventCallback):
                 "type": "partial",
                 "session_id": self._session_id,
                 "utterance_id": utterance_id,
+                "utterance_started_at": utterance_started_at,
                 "text": text,
                 "ts": time.time(),
             }
         )
 
-    def on_final(self, utterance_id: int, text: str) -> None:
+    def on_final(self, utterance_id: int, text: str, utterance_started_at: float) -> None:
         if self._session_id is None:
             return
         self._emit(
@@ -101,13 +108,14 @@ class SessionController(EventCallback):
                 "type": "final",
                 "session_id": self._session_id,
                 "utterance_id": utterance_id,
+                "utterance_started_at": utterance_started_at,
                 "text": text,
                 "ts": time.time(),
             }
         )
         self._update_previous_final_context(text)
 
-    def on_filtered(self, utterance_id: int, text: str, reason: str) -> None:
+    def on_filtered(self, utterance_id: int, text: str, reason: str, utterance_started_at: float) -> None:
         if self._session_id is None:
             return
         self._emit(
@@ -116,6 +124,7 @@ class SessionController(EventCallback):
                 "type": "filtered",
                 "session_id": self._session_id,
                 "utterance_id": utterance_id,
+                "utterance_started_at": utterance_started_at,
                 "text": text,
                 "reason": reason,
                 "ts": time.time(),

@@ -25,7 +25,6 @@ final class LiveDictationController {
                 guard let self else { return }
                 switch result {
                 case .success:
-                    self.stateMachine.onSessionStopped()
                     self.isListening = true
                     AppLogger.log("live_dictation_started")
                 case let .failure(error):
@@ -46,26 +45,36 @@ final class LiveDictationController {
     }
 
     func notifyUserInputInterrupted() {
-        guard isListening else { return }
-        stateMachine.onUserInputInterrupted()
+        // Called from the event tap: cancel queued/in-flight writes before main-thread IPC.
+        let timestamp = Date().timeIntervalSince1970
+        guard let sessionID = stateMachine.onUserInputInterrupted(at: timestamp) else { return }
+        DispatchQueue.main.async {
+            DaemonManager.shared.discardCurrentUtterance(sessionID: sessionID, before: timestamp)
+        }
     }
 
     private func handle(_ event: DaemonEvent) {
         switch event.type {
+        case "session_started":
+            if let sessionID = event.sessionID {
+                stateMachine.onSessionStarted(sessionID)
+            }
         case "partial":
-            if let text = event.text, !text.isEmpty {
-                stateMachine.onPartial(text)
+            if let text = event.text, !text.isEmpty, let utterance = event.utterance {
+                stateMachine.onPartial(text, utterance: utterance)
             }
         case "final":
-            if let text = event.text, !text.isEmpty {
-                stateMachine.onFinal(text)
+            if let text = event.text, !text.isEmpty, let utterance = event.utterance {
+                stateMachine.onFinal(text, utterance: utterance)
             }
         case "filtered":
-            stateMachine.onFiltered()
+            if let utterance = event.utterance {
+                stateMachine.onFiltered(utterance: utterance)
+            }
         case "session_stopped":
             isListening = false
             onStartFailure = nil
-            stateMachine.onSessionStopped()
+            stateMachine.onSessionStopped(event.sessionID)
             DaemonManager.shared.notifySessionStoppedFromDaemon()
         case "warning":
             AppLogger.log("daemon_warning \(event.message ?? "?")", level: "WARN")
@@ -79,6 +88,7 @@ final class LiveDictationController {
 
     private func abortListeningAfterDaemonError(_ message: String) {
         isListening = false
+        stateMachine.onUserInputInterrupted()
         stateMachine.onSessionStopped()
         DaemonManager.shared.revertListeningAfterError()
         if let onStartFailure {

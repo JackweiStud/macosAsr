@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import unittest
 
 
@@ -8,16 +9,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class P2InputConflictGuardrailTests(unittest.TestCase):
-    def test_injection_state_machine_can_discard_pending_without_backspace(self) -> None:
+    def test_user_input_interrupt_exposes_cutoff_and_cancellation_session(self) -> None:
         source = (ROOT / "MacApp/macosAsrApp/InjectionStateMachine.swift").read_text()
 
-        self.assertIn("func onUserInputInterrupted()", source)
-        self.assertIn("applyUserInputInterrupted", source)
-        interrupt_body = source.split("private func applyUserInputInterrupted", 1)[1].split(
-            "private func", 1
-        )[0]
-        self.assertIn('pendingText = ""', interrupt_body)
-        self.assertNotIn("injector.backspace", interrupt_body)
+        # Behavior (late events, queued/in-flight writes, stop and next utterance)
+        # is exercised by the production Swift state-machine self-test.
+        self.assertRegex(source, r"func onUserInputInterrupted\(at(?: \w+)?: TimeInterval")
+        self.assertIn("Date().timeIntervalSince1970", source)
+        self.assertRegex(
+            source,
+            r"func onUserInputInterrupted\([\s\S]*?\)\s*->\s*String\?",
+        )
+        match = re.search(
+            r"func onUserInputInterrupted\([\s\S]*?\n    \}", source
+        )
+        self.assertIsNotNone(match)
+        assert match is not None
+        self.assertNotIn("injector.backspace", match.group())
+        self.assertNotIn("injector.typeText", match.group())
 
     def test_global_hotkey_monitor_reports_user_input_and_ignores_own_events(self) -> None:
         monitor = (ROOT / "MacApp/macosAsrApp/GlobalHotkeyMonitor.swift").read_text()

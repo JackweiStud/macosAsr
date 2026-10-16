@@ -12,13 +12,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class _Callback:
-    def on_partial(self, utterance_id: int, text: str) -> None:
+    def on_partial(self, utterance_id: int, text: str, utterance_started_at: float) -> None:
         pass
 
-    def on_final(self, utterance_id: int, text: str) -> None:
+    def on_final(self, utterance_id: int, text: str, utterance_started_at: float) -> None:
         pass
 
-    def on_filtered(self, utterance_id: int, text: str, reason: str) -> None:
+    def on_filtered(self, utterance_id: int, text: str, reason: str, utterance_started_at: float) -> None:
         pass
 
     def on_error(self, message: str) -> None:

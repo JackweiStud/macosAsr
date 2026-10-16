@@ -90,10 +90,10 @@ class SessionMicLifecycleTests(unittest.TestCase):
         controller = SessionController(engine, config, lambda event: None)  # type: ignore[arg-type]
 
         controller.start_session()
-        controller.on_partial(1, "Web Socket")
+        controller.on_partial(1, "Web Socket", 100.0)
         self.assertEqual(config.system_prompt, "场景：软件开发。")
 
-        controller.on_final(1, "通过   WebSocket  推送异步消息。")
+        controller.on_final(1, "通过   WebSocket  推送异步消息。", 100.0)
 
         self.assertEqual(config.system_prompt, "场景：软件开发。\n前文：通过 WebSocket 推送异步消息。")
 
@@ -106,7 +106,7 @@ class SessionMicLifecycleTests(unittest.TestCase):
         controller = SessionController(engine, config, lambda event: None)  # type: ignore[arg-type]
 
         controller.start_session()
-        controller.on_final(1, "通过 WebSocket 推送异步消息。")
+        controller.on_final(1, "通过 WebSocket 推送异步消息。", 100.0)
 
         self.assertEqual(config.system_prompt, "场景：软件开发。")
 
@@ -119,7 +119,7 @@ class SessionMicLifecycleTests(unittest.TestCase):
         controller = SessionController(engine, config, lambda event: None)  # type: ignore[arg-type]
 
         controller.start_session()
-        controller.on_final(1, "abcdef")
+        controller.on_final(1, "abcdef", 100.0)
         self.assertEqual(config.system_prompt, "前文：cdef")
 
         controller.stop_session()
