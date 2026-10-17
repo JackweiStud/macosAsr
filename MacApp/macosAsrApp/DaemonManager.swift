@@ -6,7 +6,9 @@ enum DaemonState: Equatable {
     case idle           // 尚未启动
     case loading        // 已 spawn / 正在加载模型 / 校准中
     case ready          // 已就绪，可开始听写
+    case starting       // 已请求开始，等待 session_started
     case listening      // 听写中（session_started）
+    case stopping       // 等待 daemon 收尾及旧文本注入完成
     case error(String)  // 启动/连接失败
 }
 
@@ -24,16 +26,40 @@ final class DaemonManager {
     private let restartBackoffSeconds: TimeInterval = 2.0
     private var lastRestartFailureAt = Date.distantPast
     private var pendingWarmUpAfterBackoff = false
-    private var sessionStartEpoch = 0
+    private var warmUpEpoch: UInt64 = 0
+    var onInjectionSessionStarted: ((String, TimeInterval?) -> Void)?
+    var finishInjectionSession: ((String, @escaping () -> Void) -> Void)?
+    var cancelInjection: (() -> Void)?
+    var onSessionFailure: ((String) -> Void)?
+    var eventHandler: ((DaemonEvent) -> Void)?
+
+    private lazy var sessionLifecycle: SessionLifecycle = {
+        let lifecycle = SessionLifecycle(
+            sendCommand: { [weak self] command, completion in
+                guard let self else { return }
+                let extra: [String: Any] = command == .start ? ["language": ConfigManager.shared.language] : [:]
+                self.client.send(cmd: command.rawValue, extra: extra, completion: completion)
+            },
+            beginInjection: { [weak self] sessionID, resumedAt in self?.onInjectionSessionStarted?(sessionID, resumedAt) },
+            finishInjection: { [weak self] sessionID, completion in
+                if let finish = self?.finishInjectionSession { finish(sessionID, completion) }
+                else { completion() }
+            },
+            cancelInjection: { [weak self] in self?.cancelInjection?() }
+        )
+        lifecycle.onChange = { [weak self] in self?.applySessionPhase() }
+        lifecycle.onCommandFailure = { [weak self] message in self?.markDaemonFailed(message) }
+        lifecycle.onFailure = { [weak self] message in self?.onSessionFailure?(message) }
+        return lifecycle
+    }()
+
+    var desiredListening: Bool { sessionLifecycle.desiredListening }
 
     private(set) var state: DaemonState = .idle {
         didSet {
             if oldValue != state {
                 AppLogger.log("daemon_state \(oldValue) -> \(state)")
-                let s = state
-                DispatchQueue.main.async { [weak self] in
-                    self?.onStateChange?(s)
-                }
+                onStateChange?(state)
             }
         }
     }
@@ -41,12 +67,12 @@ final class DaemonManager {
     /// 状态变化回调，主线程触发
     var onStateChange: ((DaemonState) -> Void)?
 
-    var eventHandler: ((DaemonEvent) -> Void)? {
-        get { client.onEvent }
-        set { client.onEvent = newValue }
-    }
-
     private init() {
+        client.onEvent = { [weak self] event in
+            guard let self else { return }
+            self.handleSessionEvent(event)
+            self.eventHandler?(event)
+        }
         client.onConnectionFailure = { [weak self] error in
             self?.markDaemonFailed("daemon connection failed: \(error.localizedDescription)")
         }
@@ -54,54 +80,50 @@ final class DaemonManager {
 
     /// App 启动时调用：spawn daemon、连接 socket、轮询 ping 直到 ready
     func warmUp() {
+        precondition(Thread.isMainThread)
         guard !warming else { return }
-        guard state != .ready, state != .listening else { return }
+        guard state != .ready, state != .starting, state != .listening, state != .stopping else { return }
         guard canAttemptRestartIfNeeded() else { return }
         isShuttingDown = false
         warming = true
+        warmUpEpoch &+= 1
+        let epoch = warmUpEpoch
         state = .loading
 
-        ensureDaemonReady { [weak self] result in
-            guard let self else { return }
-            self.warming = false
-            switch result {
-            case .success:
-                self.consecutiveRestartFailures = 0
-                if self.state != .listening { self.state = .ready }
-            case let .failure(error):
-                self.recordRestartFailure(error.localizedDescription)
-            }
-        }
-    }
-
-    /// 当 daemon 已 ready 时直接发 session_start；否则尝试 warmUp 后再开
-    func startSession(completion: @escaping (Result<Void, Error>) -> Void) {
-        let language = ConfigManager.shared.language
-        switch state {
-        case .ready:
-            sendSessionStart(language: language, completion: completion)
-        case .listening:
-            completion(.success(()))
-        case .idle, .loading, .error:
-            warmUp()
-            // 等待 ready 后再发；这里给回调一个超时机制由调用方决定
-            waitForReady(deadline: Date().addingTimeInterval(120)) { [weak self] result in
-                guard let self else { return }
+        ensureDaemonReady(epoch: epoch) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.warmUpEpoch == epoch else { return }
+                self.warming = false
                 switch result {
                 case .success:
-                    self.sendSessionStart(language: language, completion: completion)
-                case let .failure(err):
-                    completion(.failure(err))
+                    self.consecutiveRestartFailures = 0
+                    self.sessionLifecycle.daemonReady()
+                case let .failure(error):
+                    self.markDaemonFailed(error.localizedDescription)
                 }
             }
         }
     }
 
+    /// Commands express intent. Only daemon acknowledgements change confirmed session state.
+    func startSession() {
+        precondition(Thread.isMainThread)
+        switch state {
+        case .ready, .starting, .listening, .stopping:
+            sessionLifecycle.setDesiredListening(true)
+        case .idle, .loading, .error:
+            onSessionFailure?("ASR daemon 尚未就绪，请等待模型加载或重启服务。")
+        }
+    }
+
     func stopSession() {
-        sessionStartEpoch += 1
-        guard state == .listening else { return }
-        client.send(cmd: "session_stop")
-        state = .ready
+        precondition(Thread.isMainThread)
+        sessionLifecycle.setDesiredListening(false)
+    }
+
+    func discardCurrentUtterance(sessionID: String, before timestamp: TimeInterval) {
+        guard clientConnected else { return }
+        client.send(cmd: "discard_utterance", extra: ["session_id": sessionID, "before": timestamp])
     }
 
     /// 把设置页的断句等待 / live 刷新推到已运行的 daemon（不重启、不换模型）。
@@ -122,9 +144,13 @@ final class DaemonManager {
     /// App 退出时结束 session、通知 daemon shutdown 并断开连接
     func shutdown() {
         isShuttingDown = true
+        warmUpEpoch &+= 1
+        warming = false
+        pendingWarmUpAfterBackoff = false
         if state == .listening {
             stopSession()
         }
+        sessionLifecycle.cancel()
         if clientConnected {
             client.send(cmd: "shutdown")
             Thread.sleep(forTimeInterval: 0.3)
@@ -151,40 +177,45 @@ final class DaemonManager {
         AppLogger.log("daemon_shutdown")
     }
 
-    /// session 因开麦失败等错误结束时调用：取消 in-flight 的 session_start 成功回调
-    func revertListeningAfterError() {
-        sessionStartEpoch += 1
-        if state == .listening { state = .ready }
+    private func handleSessionEvent(_ event: DaemonEvent) {
+        precondition(Thread.isMainThread)
+        switch event.type {
+        case "session_started":
+            if let sessionID = event.sessionID {
+                let resumed = event.raw["resumed"] as? Bool == true
+                let cutoff = resumed ? Date().timeIntervalSince1970 : nil
+                if sessionLifecycle.sessionStarted(sessionID, resumedAt: cutoff) {
+                    if let cutoff {
+                        discardCurrentUtterance(sessionID: sessionID, before: cutoff)
+                    }
+                    AppLogger.log("live_dictation_started session=\(sessionID) resumed=\(resumed)")
+                }
+            }
+        case "session_stopped":
+            if let sessionID = event.sessionID { sessionLifecycle.sessionStopped(sessionID) }
+        case "error":
+            let message = event.message ?? "ASR daemon error"
+            if event.code == "mic_open_failed" {
+                sessionLifecycle.microphoneOpenFailed(message)
+            } else {
+                markDaemonFailed(message)
+            }
+        default:
+            break
+        }
     }
 
-    /// session_stopped 事件回调时由 LiveDictationController 调用
-    func notifySessionStoppedFromDaemon() {
-        sessionStartEpoch += 1
-        if state == .listening { state = .ready }
-    }
-
-    // MARK: - 内部：等待 ready
-
-    private func waitForReady(deadline: Date, completion: @escaping (Result<Void, Error>) -> Void) {
-        if state == .ready || state == .listening {
-            completion(.success(()))
-            return
+    private func applySessionPhase() {
+        let next: DaemonState
+        switch sessionLifecycle.phase {
+        case .ready: next = .ready
+        case .starting: next = .starting
+        case .listening: next = .listening
+        case .stopping: next = .stopping
+        case .failed(let message): next = .error(message)
         }
-        if case .error(let msg) = state {
-            completion(.failure(NSError(domain: "DaemonManager", code: 20, userInfo: [
-                NSLocalizedDescriptionKey: msg,
-            ])))
-            return
-        }
-        if Date() > deadline {
-            completion(.failure(NSError(domain: "DaemonManager", code: 21, userInfo: [
-                NSLocalizedDescriptionKey: "等待 daemon 就绪超时",
-            ])))
-            return
-        }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.waitForReady(deadline: deadline, completion: completion)
-        }
+        if state == next { onStateChange?(state) } // A queued restart changes the menu action.
+        else { state = next }
     }
 
     // MARK: - 内部：spawn + ping 轮询
@@ -210,7 +241,7 @@ final class DaemonManager {
         let delay = restartBackoffSeconds - elapsed
         AppLogger.log("daemon_restart_backoff delay=\(String(format: "%.2f", delay))s", level: "WARN")
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self else { return }
+            guard let self, self.pendingWarmUpAfterBackoff, !self.isShuttingDown else { return }
             self.pendingWarmUpAfterBackoff = false
             self.warmUp()
         }
@@ -220,14 +251,15 @@ final class DaemonManager {
     private func recordRestartFailure(_ message: String) {
         consecutiveRestartFailures += 1
         lastRestartFailureAt = Date()
-        state = .error(message)
+        sessionLifecycle.daemonFailed(message)
     }
 
     private func markDaemonFailed(_ message: String) {
-        DispatchQueue.main.async { [weak self] in
+        Self.onMain { [weak self] in
             guard let self else { return }
             guard !self.isShuttingDown else { return }
             if case .error = self.state { return }
+            self.warmUpEpoch &+= 1
             self.warming = false
             self.clientConnected = false
             self.client.disconnect()
@@ -241,39 +273,25 @@ final class DaemonManager {
         }
     }
 
-    private func sendSessionStart(language: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        let epoch = sessionStartEpoch
-        client.send(cmd: "session_start", extra: ["language": language]) { [weak self] result in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                guard epoch == self.sessionStartEpoch else { return }
-                switch result {
-                case .success:
-                    self.state = .listening
-                    completion(.success(()))
-                case let .failure(error):
-                    completion(.failure(error))
-                }
-            }
-        }
-    }
-
-    private func ensureDaemonReady(completion: @escaping (Result<Void, Error>) -> Void) {
+    private func ensureDaemonReady(epoch: UInt64, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard isCurrentWarmUp(epoch) else { return }
         let deadline = Date().addingTimeInterval(120)
         if FileManager.default.fileExists(atPath: ProjectPaths.socketPath.path) {
-            connectAndPing(deadline: deadline, completion: completion)
+            connectAndPing(deadline: deadline, epoch: epoch, completion: completion)
             return
         }
-        spawnDaemonAndWait(deadline: deadline, completion: completion)
+        spawnDaemonAndWait(deadline: deadline, epoch: epoch, completion: completion)
     }
 
-    private func spawnDaemonAndWait(deadline: Date, completion: @escaping (Result<Void, Error>) -> Void) {
+    private func spawnDaemonAndWait(deadline: Date, epoch: UInt64, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard isCurrentWarmUp(epoch) else { return }
         launchDaemon { [weak self] launchError in
+            guard let self, self.isCurrentWarmUp(epoch) else { return }
             if let launchError {
                 completion(.failure(launchError))
                 return
             }
-            self?.waitForSocketThenPing(deadline: deadline, completion: completion)
+            self.waitForSocketThenPing(deadline: deadline, epoch: epoch, completion: completion)
         }
     }
 
@@ -328,7 +346,8 @@ final class DaemonManager {
         }
     }
 
-    private func waitForSocketThenPing(deadline: Date, completion: @escaping (Result<Void, Error>) -> Void) {
+    private func waitForSocketThenPing(deadline: Date, epoch: UInt64, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard isCurrentWarmUp(epoch) else { return }
         if Date() > deadline {
             completion(.failure(NSError(domain: "DaemonManager", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "等待 daemon socket 超时",
@@ -336,15 +355,16 @@ final class DaemonManager {
             return
         }
         if FileManager.default.fileExists(atPath: ProjectPaths.socketPath.path) {
-            connectAndPing(deadline: deadline, completion: completion)
+            connectAndPing(deadline: deadline, epoch: epoch, completion: completion)
             return
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.waitForSocketThenPing(deadline: deadline, completion: completion)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.waitForSocketThenPing(deadline: deadline, epoch: epoch, completion: completion)
         }
     }
 
-    private func connectAndPing(deadline: Date, completion: @escaping (Result<Void, Error>) -> Void) {
+    private func connectAndPing(deadline: Date, epoch: UInt64, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard isCurrentWarmUp(epoch) else { return }
         if Date() > deadline {
             completion(.failure(NSError(domain: "DaemonManager", code: 12, userInfo: [
                 NSLocalizedDescriptionKey: "daemon 模型加载/校准超时（约 120s）",
@@ -362,30 +382,41 @@ final class DaemonManager {
                 removeStaleSocket()
                 client.disconnect()
                 clientConnected = false
-                spawnDaemonAndWait(deadline: deadline, completion: completion)
+                spawnDaemonAndWait(deadline: deadline, epoch: epoch, completion: completion)
                 return
             }
         }
 
         client.ping { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case let .success(event):
-                if event.modelLoaded == true, event.calibrated == true {
-                    self.pushRuntimeDictationSettings()
-                    completion(.success(()))
-                } else {
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                        self.connectAndPing(deadline: deadline, completion: completion)
+            Self.onMain {
+                guard let self, self.isCurrentWarmUp(epoch) else { return }
+                switch result {
+                case let .success(event):
+                    if event.modelLoaded == true, event.calibrated == true {
+                        self.pushRuntimeDictationSettings()
+                        completion(.success(()))
+                    } else {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                            self.connectAndPing(deadline: deadline, epoch: epoch, completion: completion)
+                        }
                     }
-                }
-            case .failure:
-                self.clientConnected = false
-                self.client.disconnect()
-                DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                    self.connectAndPing(deadline: deadline, completion: completion)
+                case .failure:
+                    self.clientConnected = false
+                    self.client.disconnect()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        self.connectAndPing(deadline: deadline, epoch: epoch, completion: completion)
+                    }
                 }
             }
         }
+    }
+
+    private func isCurrentWarmUp(_ epoch: UInt64) -> Bool {
+        precondition(Thread.isMainThread)
+        return warming && warmUpEpoch == epoch && !isShuttingDown
+    }
+
+    private static func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
 }

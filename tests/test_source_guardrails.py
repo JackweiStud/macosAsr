@@ -18,7 +18,7 @@ class SourceGuardrailTests(unittest.TestCase):
 
     def test_daemon_shutdown_has_bounded_wait_and_force_kill_fallback(self) -> None:
         source = (ROOT / "MacApp/macosAsrApp/DaemonManager.swift").read_text()
-        shutdown = source.split("func shutdown()", 1)[1].split("func notifySessionStoppedFromDaemon", 1)[0]
+        shutdown = source.split("func shutdown()", 1)[1].split("private func handleSessionEvent", 1)[0]
 
         self.assertNotIn("waitUntilExit()", shutdown)
         self.assertIn("Date().addingTimeInterval(3.0)", shutdown)

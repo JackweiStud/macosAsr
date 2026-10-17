@@ -7,6 +7,8 @@ cd "$ROOT"
 
 echo "== ci: swift compile =="
 ./scripts/test_p0c.sh
+./scripts/test_session_manager.sh
+./scripts/test_daemon_client.sh
 
 echo "== ci: python import =="
 if [[ ! -d .venv ]]; then

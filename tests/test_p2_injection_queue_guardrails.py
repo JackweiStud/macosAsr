@@ -17,27 +17,30 @@ class P2InjectionQueueGuardrailTests(unittest.TestCase):
         self.assertIn("injectionQueue.async", source)
         self.assertIn("func runOnInjectionQueue", source)
 
-    def test_public_event_handlers_only_enqueue_work(self) -> None:
+    def test_recognition_event_handlers_enqueue_keyboard_work(self) -> None:
         source = (ROOT / "MacApp/macosAsrApp/InjectionStateMachine.swift").read_text()
 
         for method in ("onPartial", "onFinal", "onFiltered", "onSessionStopped"):
             match = re.search(
-                rf"func {method}\([^)]*\) \{{(?P<body>[\s\S]*?)\n    \}}",
+                # A signature can contain closure parameters with their own parentheses.
+                rf"func {method}\([^\n]*\) \{{(?P<body>[\s\S]*?)\n    \}}",
                 source,
             )
             self.assertIsNotNone(match, method)
             assert match is not None
             body = match.group("body")
             self.assertIn("runOnInjectionQueue", body, method)
-            self.assertNotIn("injector.", body, method)
+            # Keyboard work may be inlined inside the queued closure.
+            synchronous_body = body.split("runOnInjectionQueue", 1)[0]
+            self.assertNotIn("injector.", synchronous_body, method)
 
     def test_live_dictation_does_not_dispatch_injection_back_to_main(self) -> None:
         source = (ROOT / "MacApp/macosAsrApp/LiveDictationController.swift").read_text()
         handler = source.split("private func handle(_ event: DaemonEvent)", 1)[1]
 
         self.assertNotIn("DispatchQueue.main.async", handler)
-        self.assertIn("stateMachine.onPartial(text)", handler)
-        self.assertIn("stateMachine.onFinal(text)", handler)
+        self.assertIn("stateMachine.onPartial(text, utterance:", handler)
+        self.assertIn("stateMachine.onFinal(text, utterance:", handler)
 
 
 if __name__ == "__main__":

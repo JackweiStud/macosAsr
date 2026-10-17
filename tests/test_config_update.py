@@ -86,11 +86,11 @@ class SessionStartMicErrorTests(unittest.TestCase):
 
     def test_live_dictation_reverts_on_mic_error(self) -> None:
         source = Path(__file__).resolve().parents[1].joinpath(
-            "MacApp/macosAsrApp/LiveDictationController.swift"
+            "MacApp/macosAsrApp/DaemonManager.swift"
         ).read_text()
-        self.assertIn("revertListeningAfterError", source)
-        self.assertIn('case "warning":', source)
-        self.assertIn("abortListeningAfterDaemonError", source)
+        self.assertIn('event.code == "mic_open_failed"', source)
+        self.assertIn("sessionLifecycle.microphoneOpenFailed(message)", source)
+        self.assertIn("sessionLifecycle.daemonFailed(message)", source)
 
 
 if __name__ == "__main__":

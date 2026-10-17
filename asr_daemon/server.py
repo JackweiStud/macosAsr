@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import socket
 import threading
@@ -30,17 +31,17 @@ class _CallbackBridge(EventCallback):
     def bind(self, target: EventCallback) -> None:
         self._target = target
 
-    def on_partial(self, utterance_id: int, text: str) -> None:
+    def on_partial(self, utterance_id: int, text: str, utterance_started_at: float) -> None:
         if self._target:
-            self._target.on_partial(utterance_id, text)
+            self._target.on_partial(utterance_id, text, utterance_started_at)
 
-    def on_final(self, utterance_id: int, text: str) -> None:
+    def on_final(self, utterance_id: int, text: str, utterance_started_at: float) -> None:
         if self._target:
-            self._target.on_final(utterance_id, text)
+            self._target.on_final(utterance_id, text, utterance_started_at)
 
-    def on_filtered(self, utterance_id: int, text: str, reason: str) -> None:
+    def on_filtered(self, utterance_id: int, text: str, reason: str, utterance_started_at: float) -> None:
         if self._target:
-            self._target.on_filtered(utterance_id, text, reason)
+            self._target.on_filtered(utterance_id, text, reason, utterance_started_at)
 
     def on_error(self, message: str) -> None:
         if self._target:
@@ -277,6 +278,18 @@ class DaemonServer:
         if cmd == "session_stop":
             self._session.stop_session()
             return []
+        if cmd == "discard_utterance":
+            before = msg.get("before")
+            try:
+                cutoff = float(before) if isinstance(before, (int, float)) and not isinstance(before, bool) else float("nan")
+            except OverflowError:
+                cutoff = float("nan")
+            if not math.isfinite(cutoff):
+                return [{"protocol": 1, "type": "error", "message": "before must be a finite timestamp", "code": "invalid_before"}]
+            session_id = msg.get("session_id")
+            discarded = self._session.discard_utterance(session_id, cutoff)
+            # A click queued just before stop/restart is harmless, not a daemon failure.
+            return [{"protocol": 1, "type": "utterance_discarded", "session_id": session_id, "before": cutoff, "discarded": discarded}]
         if cmd == "shutdown":
             threading.Thread(target=self.stop, daemon=True).start()
             return [{"protocol": 1, "type": "error", "message": "shutting down", "code": "shutdown"}]

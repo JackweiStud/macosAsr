@@ -24,13 +24,16 @@ class AsrConfig:
     input_block_seconds: float = 0.02  # 麦克风每次读块时长
     partial_interval_seconds: float = 0.5  # live 刷新间隔；可用 MACOSASR_PARTIAL_INTERVAL 覆盖
     partial_min_audio_seconds: float = 0.60  # 发出 partial 所需最短音频
-    # 单句音频上限（默认开启滚动）：到期先 final 再新开一句，避免长句停更。
-    # 0 表示不滚动、也不限制 partial 全量重跑（仅调试用）。
+    # 计算窗口目标长度；到期滚动音频并保留可修改尾部，不结束逻辑句。
+    # 0 仅关闭目标滚动，资源硬上限仍然生效。
     partial_max_audio_seconds: float = 8.0
-    # 最短滚动时长。与上限同为 8s：8 秒前不因短换气切句。
+    # 最短滚动时长。与目标同为 8s：8 秒前不因短换气滚动计算窗口。
     partial_roll_min_seconds: float = 8.0
-    # 到期时若已有这么长静音，在静音处切；否则硬切。0.40s 避免把换气当成切点。
+    # 到期时可利用短静音提前滚动计算窗口，不把换气当成语义句末。
     partial_roll_silence_seconds: float = 0.40
+    rolling_overlap_seconds: float = 2.5  # 真实尾部音频重叠，用后文修正边界词和标点
+    rolling_max_audio_seconds: float = 16.0  # 对齐失败时允许扩窗的资源硬上限
+    rolling_retry_audio_seconds: float = 1.0  # 不安全对齐后至少新增音频再重试
 
     # --- VAD ---
     vad_rms_threshold: float = 0.0  # 0 表示启动时由噪声校准覆盖
@@ -38,9 +41,9 @@ class AsrConfig:
     vad_start_speech_seconds: float = 0.20  # 判定句首所需连续语音
     vad_min_utterance_seconds: float = 0.60  # 最短有效 utterance，过短丢弃
     vad_pre_roll_seconds: float = 0.50  # 句首预卷，避免吞掉开头
-    vad_soft_max_utterance_seconds: float = 12.0  # 软上限；超时后可用较短静音提前断句
-    vad_soft_break_silence_seconds: float = 0.50  # 软断句所需静音
-    vad_max_utterance_seconds: float = 20.0  # 硬上限，强制 flush
+    vad_soft_max_utterance_seconds: float = 12.0  # 兼容旧配置：短静音触发计算窗口滚动
+    vad_soft_break_silence_seconds: float = 0.50  # 软滚动所需静音，不触发 final
+    vad_max_utterance_seconds: float = 20.0  # 兼容旧配置：计算窗口滚动阈值
 
     # --- 噪声校准 ---
     noise_calibration_seconds: float = 3.0  # 启动时校准时长
@@ -73,6 +76,9 @@ class AsrConfig:
             f"partial_max_audio={self.partial_max_audio_seconds:.2f}s "
             f"partial_roll_min={self.partial_roll_min_seconds:.2f}s "
             f"partial_roll_silence={self.partial_roll_silence_seconds:.2f}s "
+            f"rolling_overlap={self.rolling_overlap_seconds:.2f}s "
+            f"rolling_max_audio={self.rolling_max_audio_seconds:.2f}s "
+            f"rolling_retry_audio={self.rolling_retry_audio_seconds:.2f}s "
             f"vad_rms_threshold={self.vad_rms_threshold:.4f} "
             f"vad_end_silence={self.vad_end_silence_seconds:.2f}s "
             f"vad_start_speech={self.vad_start_speech_seconds:.2f}s "

@@ -52,6 +52,18 @@ class SessionMicLifecycleTests(unittest.TestCase):
             ],
         )
 
+    def test_repeated_start_acknowledges_existing_session_without_reopening_mic(self) -> None:
+        engine = _FakeEngine()
+        events = []
+        controller = SessionController(engine, AsrConfig(), events.append)  # type: ignore[arg-type]
+        first_id = controller.start_session()
+        second_id = controller.start_session()
+        self.assertEqual(second_id, first_id)
+        self.assertEqual(events[-1], {
+            "protocol": 1, "type": "session_started", "session_id": first_id, "resumed": True,
+        })
+        self.assertEqual(engine.calls, [("start_recording", None), ("set_listening", True)])
+
     def test_session_start_does_not_keep_session_when_mic_open_fails(self) -> None:
         engine = _BoomEngine()
         controller = SessionController(engine, AsrConfig(), lambda event: None)  # type: ignore[arg-type]
@@ -90,10 +102,10 @@ class SessionMicLifecycleTests(unittest.TestCase):
         controller = SessionController(engine, config, lambda event: None)  # type: ignore[arg-type]
 
         controller.start_session()
-        controller.on_partial(1, "Web Socket")
+        controller.on_partial(1, "Web Socket", 100.0)
         self.assertEqual(config.system_prompt, "场景：软件开发。")
 
-        controller.on_final(1, "通过   WebSocket  推送异步消息。")
+        controller.on_final(1, "通过   WebSocket  推送异步消息。", 100.0)
 
         self.assertEqual(config.system_prompt, "场景：软件开发。\n前文：通过 WebSocket 推送异步消息。")
 
@@ -106,7 +118,7 @@ class SessionMicLifecycleTests(unittest.TestCase):
         controller = SessionController(engine, config, lambda event: None)  # type: ignore[arg-type]
 
         controller.start_session()
-        controller.on_final(1, "通过 WebSocket 推送异步消息。")
+        controller.on_final(1, "通过 WebSocket 推送异步消息。", 100.0)
 
         self.assertEqual(config.system_prompt, "场景：软件开发。")
 
@@ -119,7 +131,7 @@ class SessionMicLifecycleTests(unittest.TestCase):
         controller = SessionController(engine, config, lambda event: None)  # type: ignore[arg-type]
 
         controller.start_session()
-        controller.on_final(1, "abcdef")
+        controller.on_final(1, "abcdef", 100.0)
         self.assertEqual(config.system_prompt, "前文：cdef")
 
         controller.stop_session()

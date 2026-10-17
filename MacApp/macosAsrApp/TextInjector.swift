@@ -3,8 +3,8 @@ import Cocoa
 
 /// Simulated keyboard input via CGEvent (TDD §4.3). Requires Accessibility permission.
 protocol TextInjecting: AnyObject {
-    func backspace(count: Int)
-    func typeText(_ text: String)
+    func backspace(count: Int, shouldContinue: () -> Bool) -> Bool
+    func typeText(_ text: String, shouldContinue: () -> Bool) -> Bool
 }
 
 enum InjectionEventMarker {
@@ -25,36 +25,42 @@ final class TextInjector: TextInjecting {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    func backspace(count: Int) {
-        guard count > 0 else { return }
+    func backspace(count: Int, shouldContinue: () -> Bool) -> Bool {
+        guard count > 0 else { return shouldContinue() }
         let source = CGEventSource(stateID: .hidSystemState)
         for _ in 0 ..< count {
+            guard shouldContinue() else { return false }
             let down = CGEvent(keyboardEventSource: source, virtualKey: backspaceKeyCode, keyDown: true)
             let up = CGEvent(keyboardEventSource: source, virtualKey: backspaceKeyCode, keyDown: false)
             markInjected(down)
             markInjected(up)
+            guard shouldContinue() else { return false }
             down?.post(tap: .cghidEventTap)
             up?.post(tap: .cghidEventTap)
             usleep(400)
         }
+        return shouldContinue()
     }
 
-    func typeText(_ text: String) {
+    func typeText(_ text: String, shouldContinue: () -> Bool) -> Bool {
         let source = CGEventSource(stateID: .hidSystemState)
         for char in text {
+            guard shouldContinue() else { return false }
             var utf16 = Array(String(char).utf16)
             guard
                 let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
                 let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
-            else { continue }
+            else { return false }
             down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
             up.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
             markInjected(down)
             markInjected(up)
+            guard shouldContinue() else { return false }
             down.post(tap: .cghidEventTap)
             up.post(tap: .cghidEventTap)
             usleep(400)
         }
+        return shouldContinue()
     }
 
     private func markInjected(_ event: CGEvent?) {

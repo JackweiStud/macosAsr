@@ -14,6 +14,7 @@ SWIFT_SOURCES=(
   MacApp/macosAsrApp/TextInjector.swift
   MacApp/macosAsrApp/InjectionStateMachine.swift
   MacApp/macosAsrApp/DaemonClient.swift
+  MacApp/macosAsrApp/SessionLifecycle.swift
   MacApp/macosAsrApp/DaemonManager.swift
   MacApp/macosAsrApp/LiveDictationController.swift
   MacApp/macosAsrApp/GlobalHotkeyMonitor.swift
@@ -42,9 +43,25 @@ swiftc -Onone \
   MacApp/macosAsrApp/AppLogger.swift \
   MacApp/macosAsrApp/TextInjector.swift \
   MacApp/macosAsrApp/InjectionStateMachine.swift \
+  MacApp/Tools/RecordingInjector.swift \
   MacApp/Tools/injection_queue_selftest.swift \
   -o /tmp/macosAsr_injection_queue_selftest
 /tmp/macosAsr_injection_queue_selftest
+
+echo "== P2-4: production session lifecycle self-test =="
+swiftc -Onone \
+  -target arm64-apple-macosx15.0 \
+  -framework Cocoa \
+  -framework ApplicationServices \
+  MacApp/macosAsrApp/ProjectPaths.swift \
+  MacApp/macosAsrApp/AppLogger.swift \
+  MacApp/macosAsrApp/TextInjector.swift \
+  MacApp/macosAsrApp/InjectionStateMachine.swift \
+  MacApp/macosAsrApp/SessionLifecycle.swift \
+  MacApp/Tools/RecordingInjector.swift \
+  MacApp/Tools/session_lifecycle_selftest.swift \
+  -o /tmp/macosAsr_session_lifecycle_selftest
+/tmp/macosAsr_session_lifecycle_selftest
 
 echo ""
 echo "All automated P0c checks passed."
