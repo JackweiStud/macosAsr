@@ -32,7 +32,7 @@ class _RecordingCallback:
 
 
 class PartialEngineUtteranceIdTests(unittest.TestCase):
-    def test_due_partial_is_skipped_when_a_terminal_boundary_is_reached(self) -> None:
+    def test_boundary_decode_skips_redundant_partial_and_only_silence_is_final(self) -> None:
         cases = [
             ("silence", 0.3, {}),
             (
@@ -93,9 +93,13 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
 
                 stream.assert_not_called()
                 generate.assert_called_once_with(engine._model, utterance.blocks, engine._config)
-                self.assertEqual(callback.events, [("final", 7, "final")])
+                event = "final" if reason == "silence" else "partial"
+                self.assertEqual(callback.events, [(event, 7, "final")])
                 self.assertIn(f"reason={reason}", "\n".join(logs.output))
-                self.assertIsNone(engine._utterance)
+                if reason == "silence":
+                    self.assertIsNone(engine._utterance)
+                else:
+                    self.assertIs(engine._utterance, utterance)
 
     def test_partial_refresh_respects_interval_during_a_short_pause(self) -> None:
         config = AsrConfig(
@@ -218,7 +222,7 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
             ],
         )
 
-    def test_max_audio_window_finalizes_without_waiting_for_end_silence(self) -> None:
+    def test_max_audio_window_checkpoints_without_semantic_final(self) -> None:
         config = AsrConfig(
             sample_rate=10,
             input_block_seconds=0.1,
@@ -245,7 +249,7 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
         with (
             self.assertLogs("asr.partial_engine", level="INFO") as logs,
             patch("asr.partial_engine.stream_utterance_text", stream),
-            patch("asr.partial_engine.generate_utterance_text", return_value="hello final"),
+            patch("asr.partial_engine.generate_utterance_text", side_effect=["hello final", "final", "hello"]),
         ):
             engine._audio_queue.put(AudioBlock(samples=speech, captured_at=1.0))
             engine._drain_audio_blocks()
@@ -260,13 +264,14 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
             callback.events,
             [
                 ("partial", 1, "hello"),
-                ("final", 1, "hello final"),
+                ("partial", 1, "hello final"),
             ],
         )
         self.assertIn("reason=max_audio_window", "\n".join(logs.output))
-        self.assertIsNone(engine._utterance)
+        self.assertIsNotNone(engine._utterance)
+        self.assertEqual(engine._utterance.utterance_id, 1)
 
-    def test_max_audio_window_starts_new_utterance_for_following_speech(self) -> None:
+    def test_max_audio_window_preserves_utterance_for_following_speech(self) -> None:
         config = AsrConfig(
             sample_rate=10,
             input_block_seconds=0.1,
@@ -288,8 +293,8 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
         engine.set_listening(True)
 
         speech = np.full(1, 0.5, dtype=np.float32)
-        partials = iter(["hello", "again"])
-        finals = iter(["hello final", "again final"])
+        partials = iter(["hello"])
+        finals = iter(["hello final", "final", "hello", "final again", "again", "final"])
 
         with (
             patch("asr.partial_engine.stream_utterance_text", side_effect=lambda *_: next(partials)),
@@ -311,11 +316,11 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
             callback.events,
             [
                 ("partial", 1, "hello"),
-                ("final", 1, "hello final"),
-                ("partial", 2, "again"),
+                ("partial", 1, "hello final"),
+                ("partial", 1, "hello final again"),
             ],
         )
-        self.assertEqual(engine._utterance.utterance_id, 2)
+        self.assertEqual(engine._utterance.utterance_id, 1)
 
     def test_short_pause_rolls_after_min_duration(self) -> None:
         config = AsrConfig(
@@ -356,9 +361,9 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
             engine._drain_audio_blocks()
             engine._process_active_utterance(end_silence_threshold=1.0)
 
-        self.assertEqual(callback.events, [("final", 1, "rolled")])
+        self.assertEqual(callback.events, [("partial", 1, "rolled")])
         self.assertIn("reason=roll_silence", "\n".join(logs.output))
-        self.assertIsNone(engine._utterance)
+        self.assertIsNotNone(engine._utterance)
 
     def test_final_audio_trim_sends_full_audio_to_partial_and_trimmed_audio_to_final(self) -> None:
         config = AsrConfig(
@@ -456,7 +461,7 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
 
         self.assertEqual(generate_sample_counts, [2])
 
-    def test_soft_boundary_finalizes_long_utterance_on_short_silence(self) -> None:
+    def test_soft_boundary_checkpoints_long_utterance_on_short_silence(self) -> None:
         config = AsrConfig(
             sample_rate=10,
             input_block_seconds=0.1,
@@ -496,9 +501,9 @@ class PartialEngineUtteranceIdTests(unittest.TestCase):
             engine._drain_audio_blocks()
             engine._process_active_utterance(end_silence_threshold=1.0)
 
-        self.assertEqual(callback.events, [("final", 1, "soft final")])
+        self.assertEqual(callback.events, [("partial", 1, "soft final")])
         self.assertIn("reason=soft_silence", "\n".join(logs.output))
-        self.assertIsNone(engine._utterance)
+        self.assertIsNotNone(engine._utterance)
 
     def test_soft_boundary_waits_until_soft_max_is_reached(self) -> None:
         config = AsrConfig(
