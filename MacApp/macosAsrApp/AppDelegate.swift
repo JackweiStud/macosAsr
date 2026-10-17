@@ -166,6 +166,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusMenuItem?.title = "Status: Ready"
             startStopMenuItem?.title = "Start Live Dictation"
             startStopMenuItem?.isEnabled = true
+        case .starting:
+            button.title = "⏳ ASR"
+            statusMenuItem?.title = DaemonManager.shared.desiredListening ? "Status: Starting…" : "Status: Starting… (stop requested)"
+            startStopMenuItem?.title = DaemonManager.shared.desiredListening ? "Cancel Start" : "Resume Start"
+            startStopMenuItem?.isEnabled = true
+        case .stopping:
+            button.title = "⏳ ASR"
+            statusMenuItem?.title = DaemonManager.shared.desiredListening ? "Status: Finishing… Restart queued" : "Status: Finishing…"
+            startStopMenuItem?.title = DaemonManager.shared.desiredListening ? "Cancel Queued Restart" : "Start After Finishing"
+            startStopMenuItem?.isEnabled = true
         case .listening:
             // 绿点用 emoji；文字交给系统着色（深色菜单栏自动变白）
             button.title = "🟢 Dictating…"
@@ -187,9 +197,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard requireAccessibility() else { return }
 
         switch DaemonManager.shared.state {
-        case .listening:
+        case .listening where DaemonManager.shared.desiredListening,
+             .starting where DaemonManager.shared.desiredListening,
+             .stopping where DaemonManager.shared.desiredListening:
             liveDictation.stop()
-        case .ready:
+        case .ready, .starting, .stopping:
             preDictationApp = NSWorkspace.shared.frontmostApplication
             liveDictation.start { [weak self] errorMsg in
                 self?.showError("Could Not Start Dictation", text: errorMsg)

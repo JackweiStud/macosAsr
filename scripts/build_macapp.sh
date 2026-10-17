@@ -24,6 +24,7 @@ swiftc -Onone \
   "$SRC/TextInjector.swift" \
   "$SRC/InjectionStateMachine.swift" \
   "$SRC/DaemonClient.swift" \
+  "$SRC/SessionLifecycle.swift" \
   "$SRC/DaemonManager.swift" \
   "$SRC/LiveDictationController.swift" \
   "$SRC/GlobalHotkeyMonitor.swift" \

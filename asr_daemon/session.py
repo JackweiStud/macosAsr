@@ -36,6 +36,14 @@ class SessionController(EventCallback):
     def start_session(self, language: str | None = None) -> str:
         if self._session_id is not None:
             logger.warning("session already active: %s", self._session_id)
+            # Reconnecting clients still need an acknowledgement. They must discard
+            # pre-reconnect audio before accepting results from this resumed session.
+            self._emit({
+                "protocol": 1,
+                "type": "session_started",
+                "session_id": self._session_id,
+                "resumed": True,
+            })
             return self._session_id
 
         if language:

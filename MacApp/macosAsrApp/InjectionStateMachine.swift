@@ -14,6 +14,7 @@ final class InjectionStateMachine {
     private let stateLock = NSLock()
     private var sessionID: String?
     private var generation: UInt64 = 0
+    private var sessionGeneration: UInt64 = 0
     private var latestUtteranceID = 0
     private var discardedThroughID = 0
     private var lastUserInputAt: TimeInterval = 0
@@ -34,14 +35,15 @@ final class InjectionStateMachine {
         injectionQueue.setSpecific(key: queueKey, value: ())
     }
 
-    func onSessionStarted(_ sessionID: String) {
+    func onSessionStarted(_ sessionID: String, discardBefore: TimeInterval = 0) {
         stateLock.lock()
         generation &+= 1
+        sessionGeneration &+= 1
         let epoch = generation
         self.sessionID = sessionID
         latestUtteranceID = 0
         discardedThroughID = 0
-        lastUserInputAt = 0
+        lastUserInputAt = discardBefore
         stateLock.unlock()
         runOnInjectionQueue {
             self.stateLock.lock()
@@ -79,11 +81,21 @@ final class InjectionStateMachine {
         }
     }
 
-    func onSessionStopped(_ stoppedSessionID: String? = nil) {
+    func onSessionStopped(_ stoppedSessionID: String? = nil, completion: (() -> Void)? = nil) {
+        // Capture the session incarnation now: a reconnect can reuse the same daemon ID.
+        // User clicks cancel writes without changing this session incarnation.
+        stateLock.lock()
+        let expectedSessionID = stoppedSessionID ?? sessionID
+        let expectedSessionGeneration = sessionGeneration
+        stateLock.unlock()
         // Preserve earlier final/flush tasks, including their cancellation by a user click.
         runOnInjectionQueue {
+            // Always release the lifecycle barrier, even for an already-retired ID.
+            defer { completion?() }
             self.stateLock.lock()
-            if let stoppedSessionID, self.sessionID != stoppedSessionID {
+            guard let expectedSessionID, self.sessionID == expectedSessionID,
+                  self.sessionGeneration == expectedSessionGeneration
+            else {
                 self.stateLock.unlock()
                 return
             }

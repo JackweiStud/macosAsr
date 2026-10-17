@@ -22,7 +22,8 @@ class P2InjectionQueueGuardrailTests(unittest.TestCase):
 
         for method in ("onPartial", "onFinal", "onFiltered", "onSessionStopped"):
             match = re.search(
-                rf"func {method}\([^)]*\) \{{(?P<body>[\s\S]*?)\n    \}}",
+                # A signature can contain closure parameters with their own parentheses.
+                rf"func {method}\([^\n]*\) \{{(?P<body>[\s\S]*?)\n    \}}",
                 source,
             )
             self.assertIsNotNone(match, method)

@@ -24,6 +24,8 @@ struct DaemonEvent {
 /// Unix socket JSON-lines client (SDD §5). Keeps one connection for session broadcasts.
 final class DaemonClient {
     private var socketFD: Int32 = -1
+    private let connectionLock = NSLock()
+    private var connectionGeneration: UInt64 = 0
     private var readSource: DispatchSourceRead?
     private let writeQueue = DispatchQueue(label: "com.macosasr.daemon.write")
     private var lineBuffer = ""
@@ -35,6 +37,7 @@ final class DaemonClient {
     }
 
     func connect(socketPath: URL) throws {
+        precondition(Thread.isMainThread)
         disconnect()
         let path = socketPath.path
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -70,9 +73,12 @@ final class DaemonClient {
             throw POSIXError(POSIXErrorCode(rawValue: err) ?? .ECONNREFUSED)
         }
 
+        connectionLock.lock()
         socketFD = fd
-        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: DispatchQueue.global(qos: .userInitiated))
-        source.setEventHandler { [weak self] in self?.readAvailable() }
+        let generation = connectionGeneration
+        connectionLock.unlock()
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: DispatchQueue.main)
+        source.setEventHandler { [weak self] in self?.readAvailable(fd: fd, generation: generation) }
         source.setCancelHandler { [fd] in close(fd) }
         source.resume()
         readSource = source
@@ -80,13 +86,17 @@ final class DaemonClient {
     }
 
     func disconnect() {
+        connectionLock.lock()
+        connectionGeneration &+= 1
+        let disconnectedFD = socketFD
+        socketFD = -1
+        connectionLock.unlock()
         if let source = readSource {
             readSource = nil
             source.cancel()
-        } else if socketFD >= 0 {
-            close(socketFD)
+        } else if disconnectedFD >= 0 {
+            close(disconnectedFD)
         }
-        socketFD = -1
         lineBuffer = ""
     }
 
@@ -107,18 +117,29 @@ final class DaemonClient {
             return
         }
         line.append("\n")
-        let fd = socketFD
+        connectionLock.lock()
+        let generation = connectionGeneration
+        // Keep queued writes attached to their original socket even if its fd is reused.
+        let fd = socketFD >= 0 ? dup(socketFD) : -1
+        connectionLock.unlock()
         let lineByteCount = line.utf8.count
         guard fd >= 0 else {
             let error = NSError(domain: "DaemonClient", code: 5, userInfo: [
                 NSLocalizedDescriptionKey: "daemon socket is not connected",
             ])
-            reportConnectionFailure(error)
+            reportConnectionFailure(error, generation: generation)
             completion?(.failure(error))
             return
         }
         writeQueue.async { [weak self] in
+            defer { close(fd) }
             guard let self else { return }
+            guard self.isCurrentConnection(generation) else {
+                completion?(.failure(NSError(domain: "DaemonClient", code: 7, userInfo: [
+                    NSLocalizedDescriptionKey: "daemon command belongs to a closed connection",
+                ])))
+                return
+            }
             let writeResult = line.withUTF8 { raw in
                 write(fd, raw.baseAddress!, raw.count)
             }
@@ -129,7 +150,7 @@ final class DaemonClient {
                     "daemon_client_send_failed cmd=\(cmd) bytes=\(lineByteCount) wrote=\(writeResult) errno=\(err)",
                     level: "ERROR"
                 )
-                self.reportConnectionFailure(error)
+                self.reportConnectionFailure(error, generation: generation)
                 completion?(.failure(error))
                 return
             }
@@ -171,9 +192,10 @@ final class DaemonClient {
         }
     }
 
-    private func readAvailable() {
+    private func readAvailable(fd: Int32, generation: UInt64) {
+        guard isCurrentConnection(generation) else { return }
         var chunk = [UInt8](repeating: 0, count: 4096)
-        let n = read(socketFD, &chunk, chunk.count)
+        let n = read(fd, &chunk, chunk.count)
         guard n > 0 else {
             let error: Error
             if n == 0 {
@@ -185,7 +207,7 @@ final class DaemonClient {
             }
             AppLogger.log("daemon_client_read_failed n=\(n)", level: "ERROR")
             disconnect()
-            reportConnectionFailure(error)
+            onConnectionFailure?(error)
             return
         }
         lineBuffer.append(String(decoding: chunk.prefix(n), as: UTF8.self))
@@ -198,14 +220,22 @@ final class DaemonClient {
             else { continue }
             let event = DaemonEvent(type: type, raw: obj)
             DispatchQueue.main.async { [weak self] in
-                self?.onEvent?(event)
+                guard let self, self.isCurrentConnection(generation) else { return }
+                self.onEvent?(event)
             }
         }
     }
 
-    private func reportConnectionFailure(_ error: Error) {
+    private func isCurrentConnection(_ generation: UInt64) -> Bool {
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
+        return connectionGeneration == generation
+    }
+
+    private func reportConnectionFailure(_ error: Error, generation: UInt64) {
         DispatchQueue.main.async { [weak self] in
-            self?.onConnectionFailure?(error)
+            guard let self, self.isCurrentConnection(generation) else { return }
+            self.onConnectionFailure?(error)
         }
     }
 }
