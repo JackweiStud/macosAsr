@@ -54,6 +54,18 @@ def apply_env_overrides(config: AsrConfig, environ: dict[str, str]) -> None:
     if partial_roll_silence_env:
         config.partial_roll_silence_seconds = max(0.0, float(partial_roll_silence_env))
 
+    native_streaming_env = environ.get("MACOSASR_NATIVE_STREAMING")
+    if native_streaming_env is not None:
+        config.native_streaming_enabled = _env_flag_enabled(native_streaming_env)
+
+    streaming_unfixed_tokens_env = environ.get("MACOSASR_STREAMING_UNFIXED_TOKENS")
+    if streaming_unfixed_tokens_env:
+        config.streaming_unfixed_tokens = max(0, int(streaming_unfixed_tokens_env))
+
+    streaming_max_audio_env = environ.get("MACOSASR_STREAMING_MAX_AUDIO")
+    if streaming_max_audio_env:
+        config.streaming_max_audio_seconds = max(8.0, float(streaming_max_audio_env))
+
     vad_end_env = environ.get("MACOSASR_VAD_END_SILENCE")
     if vad_end_env:
         config.vad_end_silence_seconds = float(vad_end_env)

@@ -25,6 +25,7 @@ from asr.asr_core import (
     warm_up_asr_model,
 )
 from asr.config import AsrConfig
+from asr.streaming_decoder import Qwen3StreamingSession, supports_native_streaming
 from asr.transcript import RollingTranscript
 
 try:
@@ -61,6 +62,9 @@ class _UtteranceState:
     audio_seconds: float = 0.0
     last_checkpoint_audio_seconds: float | None = None
     window_has_voice: bool = True
+    streaming_session: Qwen3StreamingSession | None = None
+    max_partial_ms: float = 0.0
+    native_seal_count: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -298,11 +302,14 @@ class PartialEngine:
 
     def _clear_audio_state(self) -> None:
         with self._lock:
+            old_utterance = self._utterance
             self._utterance = None
             self._pre_roll.clear()
             self._voiced_run_seconds = 0.0
             self._voiced_run_started_at = None
             self._pending_audio_blocks.clear()
+        if old_utterance is not None and old_utterance.streaming_session is not None:
+            old_utterance.streaming_session.reset()
         while True:
             try:
                 self._audio_queue.get_nowait()
@@ -393,12 +400,17 @@ class PartialEngine:
             replay: list[AudioBlock] = []
             if utterance is not None and utterance.speech_started_at <= cutoff:
                 replay = [block for block in utterance.blocks if block.captured_at > cutoff]
+                if utterance.streaming_session is not None:
+                    utterance.streaming_session.reset()
                 self._utterance = None
                 self._pre_roll.clear()
                 self._voiced_run_seconds = 0.0
                 self._voiced_run_started_at = None
             elif utterance is not None:
-                utterance.blocks = [block for block in utterance.blocks if block.captured_at > cutoff]
+                trimmed_blocks = [block for block in utterance.blocks if block.captured_at > cutoff]
+                if len(trimmed_blocks) != len(utterance.blocks) and utterance.streaming_session is not None:
+                    utterance.streaming_session.reset()
+                utterance.blocks = trimmed_blocks
             elif self._voiced_run_started_at is not None and self._voiced_run_started_at <= cutoff:
                 replay = [block for block in self._pre_roll if block.captured_at > cutoff]
                 self._pre_roll.clear()
@@ -572,7 +584,35 @@ class PartialEngine:
     def _audio_seconds(self, blocks: list[AudioBlock]) -> float:
         return sum(len(block.samples) for block in blocks) / float(self._config.sample_rate)
 
+    def _use_native_streaming(self) -> bool:
+        return (
+            self._config.native_streaming_enabled
+            and supports_native_streaming(self._model)
+        )
+
+    def _get_streaming_session(self, utterance: _UtteranceState) -> Qwen3StreamingSession:
+        if utterance.streaming_session is None:
+            utterance.streaming_session = Qwen3StreamingSession(self._model)
+        return utterance.streaming_session
+
+    def _native_seal_reason(self, seconds: float, utterance: _UtteranceState) -> str | None:
+        cfg = self._config
+        max_sec = max(cfg.input_block_seconds, cfg.streaming_max_audio_seconds)
+        if seconds >= max_sec:
+            return "streaming_max_audio"
+        roll_silence = max(cfg.input_block_seconds, cfg.partial_roll_silence_seconds)
+        if (
+            cfg.streaming_seal_min_seconds > 0
+            and cfg.partial_roll_silence_seconds > 0
+            and seconds >= cfg.streaming_seal_min_seconds
+            and utterance.silence_run_seconds >= roll_silence
+        ):
+            return "streaming_pause_seal"
+        return None
+
     def _checkpoint_due(self, utterance: _UtteranceState, seconds: float) -> bool:
+        if self._use_native_streaming():
+            return self._native_seal_reason(seconds, utterance) is not None
         if seconds >= max(self._config.input_block_seconds, self._config.rolling_max_audio_seconds):
             return True
         reason = self._utterance_roll_reason(seconds, utterance)
@@ -613,7 +653,35 @@ class PartialEngine:
             return
 
         if self._checkpoint_due(utterance, utterance_seconds):
-            self._checkpoint_utterance(utterance)
+            if self._use_native_streaming():
+                self._seal_native_streaming_window(utterance)
+            else:
+                self._checkpoint_utterance(utterance)
+            return
+
+        if self._use_native_streaming():
+            if (
+                utterance_seconds >= cfg.partial_min_audio_seconds
+                and now - utterance.last_partial_at >= cfg.partial_interval_seconds
+            ):
+                partial_call_at = time.perf_counter()
+                effective_cfg = self._config_for_utterance(utterance)
+                session = self._get_streaming_session(utterance)
+                step = session.decode(utterance.blocks, effective_cfg, is_final=False)
+                utterance.last_partial_at = partial_call_at
+                utterance.max_partial_ms = max(utterance.max_partial_ms, step.elapsed_ms)
+                partial_text = utterance.transcript.update(step.text)
+                self._publish_partial(utterance, partial_text, partial_call_at)
+                logger.debug(
+                    "stream_partial u=%s audio_s=%.2f ms=%.1f pref=%s gen=%s cached=%s enc=%s",
+                    utterance.utterance_id,
+                    utterance_seconds,
+                    step.elapsed_ms,
+                    step.prefix_tokens,
+                    step.generated_tokens,
+                    step.cached_blocks,
+                    step.encoded_blocks,
+                )
             return
 
         partial_limit = (
@@ -637,6 +705,33 @@ class PartialEngine:
             utterance.last_partial_at = partial_call_at
             partial_text = utterance.transcript.update(hypothesis)
             self._publish_partial(utterance, partial_text, partial_call_at)
+
+    def _seal_native_streaming_window(self, utterance: _UtteranceState) -> None:
+        """Bound native streaming audio length on very long utterances without ending the sentence."""
+        seconds = self._audio_seconds(utterance.blocks)
+        utterance.audio_seconds = max(utterance.audio_seconds, seconds)
+        reason = self._native_seal_reason(seconds, utterance) or "streaming_max_audio"
+        called_at = time.perf_counter()
+        effective_cfg = self._config_for_utterance(utterance)
+        session = self._get_streaming_session(utterance)
+        step = session.decode(utterance.blocks, effective_cfg, is_final=True)
+        visible = utterance.transcript.seal_window(step.text)
+        session.reset()
+        utterance.blocks = []
+        utterance.window_has_voice = False
+        utterance.last_partial_at = called_at
+        utterance.native_seal_count += 1
+        self._publish_partial(utterance, visible, called_at)
+        logger.info(
+            "stream_seal_metrics u=%s reason=%s audio_seconds=%.2f ms=%.1f pref=%s gen=%s cached=%s",
+            utterance.utterance_id,
+            reason,
+            seconds,
+            step.elapsed_ms,
+            step.prefix_tokens,
+            step.generated_tokens,
+            step.cached_blocks,
+        )
 
     def _config_for_utterance(self, utterance: _UtteranceState) -> AsrConfig:
         cfg = self._config
@@ -783,18 +878,28 @@ class PartialEngine:
         # A resource fallback can leave only newly captured silence. Do not
         # decode that silence or discard text confirmed in earlier windows.
         effective_cfg = self._config_for_utterance(utterance)
-        hypothesis = (
-            generate_utterance_text(self._model, final_blocks, effective_cfg)
-            if final_blocks and utterance.window_has_voice
-            else ""
-        )
+        native_streaming = self._use_native_streaming()
+        cached_blocks = 0
+        if final_blocks and utterance.window_has_voice:
+            if native_streaming:
+                session = self._get_streaming_session(utterance)
+                step = session.decode(final_blocks, effective_cfg, is_final=True)
+                hypothesis = step.text
+                cached_blocks = step.cached_blocks
+            else:
+                hypothesis = generate_utterance_text(self._model, final_blocks, effective_cfg)
+        else:
+            hypothesis = ""
+        if utterance.streaming_session is not None:
+            utterance.streaming_session.reset()
         final_text = utterance.transcript.finish(hypothesis)
         final_ms = (time.perf_counter() - final_start) * 1000.0
         uid = utterance.utterance_id
         utterance_started_at = self._utterance_timestamp(utterance)
         logger.info(
             "final_metrics u=%s reason=%s utterance_seconds=%.2f final_audio_seconds=%.2f "
-            "trimmed_seconds=%.2f final_ms=%.1f partial_count=%s final_len=%s silence_seconds=%.2f",
+            "trimmed_seconds=%.2f final_ms=%.1f partial_count=%s final_len=%s silence_seconds=%.2f"
+            "%s",
             uid,
             reason,
             utterance_seconds,
@@ -804,6 +909,12 @@ class PartialEngine:
             utterance.partial_count,
             len(final_text),
             utterance.silence_run_seconds,
+            (
+                f" native_streaming=True max_partial_ms={utterance.max_partial_ms:.1f} "
+                f"cached_blocks={cached_blocks} seals={utterance.native_seal_count}"
+                if native_streaming
+                else ""
+            ),
         )
 
         if final_text and should_drop_final_text(final_text, cfg):

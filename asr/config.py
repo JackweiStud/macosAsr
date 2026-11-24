@@ -35,6 +35,13 @@ class AsrConfig:
     rolling_max_audio_seconds: float = 16.0  # 对齐失败时允许扩窗的资源硬上限
     rolling_retry_audio_seconds: float = 1.0  # 不安全对齐后至少新增音频再重试
 
+    # --- 原生块缓存 + Prefix Rollback 流式（Qwen3-ASR）---
+    native_streaming_enabled: bool = True  # 启用 8s AudioEncoder 块缓存与前缀回退续写
+    streaming_unfixed_chunks: int = 2  # 前 N 次 partial 自由重解，稳定后再锁定前缀
+    streaming_unfixed_tokens: int = 6  # 尾部保留可修订的 Token 数（约 2~3 秒）
+    streaming_seal_min_seconds: float = 40.0  # 超长连续口述遇短停顿可安全封窗的起始时长
+    streaming_max_audio_seconds: float = 48.0  # 单段原生流式音频上限（超限封窗并续写）
+
     # --- VAD ---
     vad_rms_threshold: float = 0.0  # 0 表示启动时由噪声校准覆盖
     vad_end_silence_seconds: float = 1.50  # 判定句末所需静音
@@ -79,6 +86,10 @@ class AsrConfig:
             f"rolling_overlap={self.rolling_overlap_seconds:.2f}s "
             f"rolling_max_audio={self.rolling_max_audio_seconds:.2f}s "
             f"rolling_retry_audio={self.rolling_retry_audio_seconds:.2f}s "
+            f"native_streaming={self.native_streaming_enabled} "
+            f"streaming_unfixed_chunks={self.streaming_unfixed_chunks} "
+            f"streaming_unfixed_tokens={self.streaming_unfixed_tokens} "
+            f"streaming_max_audio={self.streaming_max_audio_seconds:.2f}s "
             f"vad_rms_threshold={self.vad_rms_threshold:.4f} "
             f"vad_end_silence={self.vad_end_silence_seconds:.2f}s "
             f"vad_start_speech={self.vad_start_speech_seconds:.2f}s "
