@@ -42,6 +42,8 @@ class AsrConfigTests(unittest.TestCase):
         self.assertIn("vad_soft_max_utterance=12.00s", summary)
         self.assertIn("vad_soft_break_silence=0.50s", summary)
         self.assertIn("vad_max_utterance=20.00s", summary)
+        self.assertIn("semantic_endpointing=True", summary)
+        self.assertIn("semantic_fast_min=0.80s", summary)
         self.assertIn("noise_calibration=3.00s", summary)
         self.assertIn("noise_multiplier=3.00", summary)
         self.assertIn("noise_margin=0.0030", summary)

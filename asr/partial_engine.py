@@ -25,6 +25,7 @@ from asr.asr_core import (
     warm_up_asr_model,
 )
 from asr.config import AsrConfig
+from asr.endpointing import EndpointDecision, compute_end_silence_threshold
 from asr.streaming_decoder import Qwen3StreamingSession, supports_native_streaming
 from asr.transcript import RollingTranscript
 
@@ -58,6 +59,7 @@ class _UtteranceState:
     partial_count: int = 0
     first_partial_at: float | None = None
     last_partial_text: str = ""
+    last_partial_voice_at: float | None = None
     transcript: RollingTranscript = dataclasses.field(default_factory=RollingTranscript)
     audio_seconds: float = 0.0
     last_checkpoint_audio_seconds: float | None = None
@@ -453,7 +455,9 @@ class PartialEngine:
             calibration_rms.append(audio_rms(block.samples))
             self._pre_roll.append(block)
 
-        measured = float(np.percentile(calibration_rms, 90)) if calibration_rms else 0.0
+        # Use 60th percentile rather than 90th so a brief click or cough during
+        # the 3s startup calibration cannot inflate the threshold 3x.
+        measured = float(np.percentile(calibration_rms, 60)) if calibration_rms else 0.0
         self._measured_noise_floor = measured
         self._set_threshold(cfg, measured)
         self._calibrated = True
@@ -569,6 +573,15 @@ class PartialEngine:
                     else:
                         self._voiced_run_seconds = 0.0
                         self._voiced_run_started_at = None
+                        # Slowly relax an inflated startup noise floor downward
+                        # during verified quiet idle frames (never raises it).
+                        if (
+                            cfg.vad_rms_threshold <= 0
+                            and self._calibrated
+                            and 0.0 < block_rms < self._measured_noise_floor
+                        ):
+                            self._measured_noise_floor = 0.98 * self._measured_noise_floor + 0.02 * block_rms
+                            self._set_threshold(cfg, self._measured_noise_floor)
                     continue
 
                 utterance.blocks.append(block)
@@ -622,12 +635,25 @@ class PartialEngine:
         retry = max(self._config.input_block_seconds, self._config.rolling_retry_audio_seconds)
         return previous is None or seconds - previous >= retry - 1e-9
 
+    def _endpoint_decision(self, utterance: _UtteranceState, base_end_silence: float) -> EndpointDecision:
+        partial_fresh = (
+            utterance.last_partial_voice_at is not None
+            and utterance.last_partial_voice_at >= utterance.last_voice_at - 1e-9
+        )
+        return compute_end_silence_threshold(
+            base_end_silence,
+            utterance.last_partial_text,
+            partial_fresh=partial_fresh,
+            config=self._config,
+        )
+
     def _audio_processing_due(self) -> bool:
         utterance = self._utterance
         if utterance is None:
             return False
+        end_decision = self._endpoint_decision(utterance, max(0.05, self._config.vad_end_silence_seconds))
         return (
-            utterance.silence_run_seconds >= max(0.05, self._config.vad_end_silence_seconds)
+            utterance.silence_run_seconds >= end_decision.threshold_seconds - 1e-9
             or self._checkpoint_due(utterance, self._audio_seconds(utterance.blocks))
         )
 
@@ -643,13 +669,16 @@ class PartialEngine:
             return
 
         utterance_seconds = self._audio_seconds(utterance.blocks)
+        end_decision = self._endpoint_decision(utterance, end_silence_threshold)
         # Finalize before refreshing partial text to avoid transcribing the same
         # audio twice when an utterance ends on a partial refresh tick.
-        if utterance.silence_run_seconds >= end_silence_threshold:
+        if utterance.silence_run_seconds >= end_decision.threshold_seconds - 1e-9:
             self._release_utterance()
             if max(utterance.audio_seconds, utterance_seconds) < cfg.vad_min_utterance_seconds:
+                if utterance.streaming_session is not None:
+                    utterance.streaming_session.reset()
                 return
-            self._finalize_utterance(utterance, reason="silence")
+            self._finalize_utterance(utterance, reason="silence", endpoint=end_decision)
             return
 
         if self._checkpoint_due(utterance, utterance_seconds):
@@ -665,10 +694,12 @@ class PartialEngine:
                 and now - utterance.last_partial_at >= cfg.partial_interval_seconds
             ):
                 partial_call_at = time.perf_counter()
+                voice_snapshot = utterance.last_voice_at
                 effective_cfg = self._config_for_utterance(utterance)
                 session = self._get_streaming_session(utterance)
                 step = session.decode(utterance.blocks, effective_cfg, is_final=False)
                 utterance.last_partial_at = partial_call_at
+                utterance.last_partial_voice_at = voice_snapshot
                 utterance.max_partial_ms = max(utterance.max_partial_ms, step.elapsed_ms)
                 partial_text = utterance.transcript.update(step.text)
                 self._publish_partial(utterance, partial_text, partial_call_at)
@@ -700,9 +731,11 @@ class PartialEngine:
             and now - utterance.last_partial_at >= cfg.partial_interval_seconds
         ):
             partial_call_at = time.perf_counter()
+            voice_snapshot = utterance.last_voice_at
             effective_cfg = self._config_for_utterance(utterance)
             hypothesis = stream_utterance_text(self._model, utterance.blocks, effective_cfg)
             utterance.last_partial_at = partial_call_at
+            utterance.last_partial_voice_at = voice_snapshot
             partial_text = utterance.transcript.update(hypothesis)
             self._publish_partial(utterance, partial_text, partial_call_at)
 
@@ -797,10 +830,12 @@ class PartialEngine:
         utterance.audio_seconds = max(utterance.audio_seconds, seconds)
         reason = self._utterance_roll_reason(seconds, utterance) or "resource_limit"
         called_at = time.perf_counter()
+        voice_snapshot = utterance.last_voice_at
         effective_cfg = self._config_for_utterance(utterance)
         hypothesis = generate_utterance_text(self._model, utterance.blocks, effective_cfg)
         visible = utterance.transcript.update(hypothesis)
         utterance.last_partial_at = called_at
+        utterance.last_partial_voice_at = voice_snapshot
         overlap_blocks = self._overlap_audio_blocks(utterance.blocks)
         prefix_blocks = utterance.blocks[:len(utterance.blocks) - len(overlap_blocks)]
         overlap_hypothesis = (
@@ -864,6 +899,7 @@ class PartialEngine:
         *,
         force_short: bool = False,
         reason: str = "final",
+        endpoint: EndpointDecision | None = None,
     ) -> None:
         cfg = self._config
         assert self._model is not None
@@ -896,10 +932,15 @@ class PartialEngine:
         final_ms = (time.perf_counter() - final_start) * 1000.0
         uid = utterance.utterance_id
         utterance_started_at = self._utterance_timestamp(utterance)
+        endpoint_suffix = (
+            f" endpoint={endpoint.mode}({endpoint.reason}) end_threshold={endpoint.threshold_seconds:.2f}s"
+            if endpoint is not None
+            else ""
+        )
         logger.info(
             "final_metrics u=%s reason=%s utterance_seconds=%.2f final_audio_seconds=%.2f "
             "trimmed_seconds=%.2f final_ms=%.1f partial_count=%s final_len=%s silence_seconds=%.2f"
-            "%s",
+            "%s%s",
             uid,
             reason,
             utterance_seconds,
@@ -909,6 +950,7 @@ class PartialEngine:
             utterance.partial_count,
             len(final_text),
             utterance.silence_run_seconds,
+            endpoint_suffix,
             (
                 f" native_streaming=True max_partial_ms={utterance.max_partial_ms:.1f} "
                 f"cached_blocks={cached_blocks} seals={utterance.native_seal_count}"

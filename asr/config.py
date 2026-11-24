@@ -52,6 +52,12 @@ class AsrConfig:
     vad_soft_break_silence_seconds: float = 0.50  # 软滚动所需静音，不触发 final
     vad_max_utterance_seconds: float = 20.0  # 兼容旧配置：计算窗口滚动阈值
 
+    # --- 语义标点双速断句（Semantic Endpointing）---
+    semantic_endpointing_enabled: bool = True  # 完整句末走快通道，未闭合/思考停顿保持完整等待
+    semantic_fast_silence_ratio: float = 0.50  # 完整陈述句快通道比例（如 2.0s → 1.0s）
+    semantic_fast_question_ratio: float = 0.45  # 问句/感叹句快通道比例（如 2.0s → 0.9s）
+    semantic_fast_min_silence_seconds: float = 0.80  # 快通道静音下限，避开正常换气停顿
+
     # --- 噪声校准 ---
     noise_calibration_seconds: float = 3.0  # 启动时校准时长
     noise_multiplier: float = 3.0  # 阈值 = RMS × multiplier + margin
@@ -98,6 +104,8 @@ class AsrConfig:
             f"vad_soft_max_utterance={self.vad_soft_max_utterance_seconds:.2f}s "
             f"vad_soft_break_silence={self.vad_soft_break_silence_seconds:.2f}s "
             f"vad_max_utterance={self.vad_max_utterance_seconds:.2f}s "
+            f"semantic_endpointing={self.semantic_endpointing_enabled} "
+            f"semantic_fast_min={self.semantic_fast_min_silence_seconds:.2f}s "
             f"noise_calibration={self.noise_calibration_seconds:.2f}s "
             f"noise_multiplier={self.noise_multiplier:.2f} "
             f"noise_margin={self.noise_margin:.4f} "

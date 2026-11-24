@@ -78,6 +78,14 @@ def apply_env_overrides(config: AsrConfig, environ: dict[str, str]) -> None:
     if vad_soft_break_env:
         config.vad_soft_break_silence_seconds = max(0.0, float(vad_soft_break_env))
 
+    semantic_ep_env = environ.get("MACOSASR_SEMANTIC_ENDPOINTING")
+    if semantic_ep_env is not None:
+        config.semantic_endpointing_enabled = _env_flag_enabled(semantic_ep_env)
+
+    semantic_fast_min_env = environ.get("MACOSASR_SEMANTIC_FAST_MIN_SILENCE")
+    if semantic_fast_min_env:
+        config.semantic_fast_min_silence_seconds = max(0.2, float(semantic_fast_min_env))
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
