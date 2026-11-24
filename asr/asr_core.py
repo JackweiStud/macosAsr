@@ -87,6 +87,34 @@ def current_rss_mib() -> Optional[float]:
 
 CONTEXT_PREFIX_MARKER = "前文："
 HOTWORDS_PREFIX_MARKER = "常用术语："
+_PROMPT_ECHO_MARKERS = ("当前窗口：", "光标前文：", "常用术语：", "前文：")
+
+
+def is_prompt_echo_hallucination(text: str, system_prompt: str, audio_seconds: float) -> bool:
+    """Detect Qwen3-ASR hallucinations that echo system_prompt on brief noise/silence."""
+    if not text or not system_prompt:
+        return False
+    norm_text = normalize_text(text)
+    norm_prompt = normalize_text(system_prompt)
+    if not norm_text or not norm_prompt:
+        return False
+
+    matched_markers = 0
+    for marker in _PROMPT_ECHO_MARKERS:
+        if marker in norm_prompt and marker in norm_text:
+            matched_markers += 1
+            prompt_tail = compact_text(norm_prompt.split(marker, 1)[1])[:6]
+            text_tail = compact_text(norm_text.split(marker, 1)[1])
+            if len(prompt_tail) >= 3 and text_tail.startswith(prompt_tail[:3]):
+                return True
+    if matched_markers >= 2:
+        return True
+
+    compact_out = compact_text(norm_text)
+    compact_prompt = compact_text(norm_prompt)
+    if audio_seconds <= 2.5 and len(compact_out) >= 10 and compact_out in compact_prompt:
+        return True
+    return False
 
 
 def normalize_text(text: str) -> str:

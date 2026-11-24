@@ -220,20 +220,20 @@ After code changes:
 
 With the `macosAsr Local` cert, you usually **don’t** need to re-grant Accessibility.
 
-### Advanced: partial refresh interval
+### Settings & dictation tuning
 
-Default **0.5s** (`asr/config.py`). Override before launch:
+Open **🎤 ASR → Settings…** to configure and persist options in `~/Library/Application Support/macosAsr/config.json`:
 
-```bash
-export MACOSASR_PARTIAL_INTERVAL=0.8
-./scripts/launch_macapp.sh
-```
+- **Recognition language**: Chinese / English
+- **ASR model**: defaults to `mlx-community/Qwen3-ASR-0.6B-8bit` (recommended for low-latency streaming); `Qwen3-ASR-1.7B-8bit` is also available (model switch requires restarting the app)
+- **Sentence end wait / Live text refresh**: hot-applied immediately without restarting (env overrides `MACOSASR_PARTIAL_INTERVAL` and `MACOSASR_VAD_END_SILENCE` are also supported)
+- **Custom hotwords / terms**: pre-populated with common developer terms, editable and hot-applied via **Save & Apply** to improve mixed-language technical terminology accuracy
+- **Read active window & cursor context (off by default)**: opt-in local-only context capture at `⌥Z` start (reads active window title and up to 120 chars before the cursor; never logged; automatically skips password fields and credential managers)
 
-Lower = snappier live text, more GPU/injection load. Not exposed in the Settings UI.
+**Streaming & endpointing (enabled by default)**:
 
-For long utterances, the daemon now commits the current segment at about **8s** and immediately starts a new utterance. This keeps live text moving during 10-18s+ dictation instead of freezing until the final sentence boundary.
-
-Recognition language is in **Settings…** (Chinese / English), stored under `~/Library/Application Support/macosAsr/config.json`.
+- **Native Qwen3-ASR 8s block-cached + Prefix Rollback streaming**: caches completed 8s `AudioEncoder` blocks and monotonically commits stable prefix tokens while keeping the trailing ~6 tokens (2–3s) revisable, eliminating 8s pauses, BPE space loss, and large backspace flickers up to 48s per segment.
+- **Semantic dual-speed endpointing**: closes complete declarative/question sentences quickly (~0.9s–1.0s when end-wait is 2.0s) while holding the full configured `Sentence end wait` on mid-thought pauses, conjunctions, or unfinished clauses.
 
 ---
 

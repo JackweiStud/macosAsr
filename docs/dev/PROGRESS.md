@@ -6,13 +6,17 @@
 
 ## Current phase
 
-**v0.1.x 开源基线** — P0 完成；**全局 ⌥Z Toggle**；设置页（语言/模型/听写参数）；README 中英双语；CI 冒烟；2026-06-12 P0 review hardening、P1-1 daemon 自愈、P1-3 partial 限流、P2-1 输入保护、P2-3 后台注入、P2-4 按需开麦已落地；2026-08-18 长句滚动提交已通过实机长口述验收
+**v0.2.x 流式与准确率突破** — 已完成全局 **⌥Z Toggle**、设置页热更新、后台注入、按需开麦、以及 2026-11 四项 ASR 核心突破：
+1. 修复 `partial` 逐 BPE Token 吞空格 Bug，补齐句内跨窗 `committed` 前文接力与打断脏上下文清理
+2. 落地 **Qwen3-ASR 原生 8s `AudioEncoder` 块缓存 + Assistant Prefix Rollback 流式引擎**（`asr/streaming_decoder.py`），32s 长句实测 `max_partial_ms=374ms`、0 次切窗对齐失败
+3. 落地 **语义标点双速断句**（`asr/endpointing.py`）与 60 分位抗噪启动校准 + 空闲底噪向下自愈
+4. 落地 **Settings 自定义热词词典热更新** + **可选本地屏幕/光标语境读取（默认关闭、跳过密码框）** + **短噪声 Prompt 回声幻觉过滤**
 
 ## Next actions（体验候选）
 
 1. 首次模型下载进度反馈
 2. 重新校准噪声菜单项
-3. 首次下载/加载状态文档校准
+3. 固定音频样本自动化评测脚本（`docs/fix/p2-1-asr-evaluation-loop.md`）
 
 ---
 
@@ -33,6 +37,10 @@
 | P2-1 输入保护 | ✅ | 听写中用户键盘/鼠标输入会丢弃当前 pending，后续不回删用户内容 |
 | P2-3 后台注入 | ✅ | `InjectionStateMachine` 通过 `com.macosasr.injection` 串行队列执行退格/打字；主线程只入队 |
 | P2-4 按需开麦 | ✅ | 启动校准后关闭麦克风；session start/stop 控制 InputStream |
+| 突破点 1：空格修复与句内前文 | ✅ | 修复 partial BPE 吞空格闪烁；跨窗接力 `committed` 前文；160ms 平滑停顿切点与惰性 prefix 解码 |
+| 突破点 2：Qwen3 原生块缓存流式 | ✅ | `asr/streaming_decoder.py` 复用 8s AudioEncoder 块特征 + Assistant Prefix Rollback，彻底消除 8s 切窗卡顿与对齐失败 |
+| 突破点 3：语义标点双速断句 | ✅ | `asr/endpointing.py` 区分闭合句末快收口（0.9–1.0s）与悬空词/思考停顿完整等待（2.0s），校准改 60 分位并支持空闲向下自愈 |
+| 突破点 4：热词词典与可选屏幕语境 | ✅ | Settings 预置开发热词支持增删改即时热更新；`ScreenContextReader` 默认关闭、自动跳过密码框；增加 Prompt 回声过滤护栏 |
 | v0.1.0 开源准备 | ✅ | LICENSE、pin deps、CI、双语 README |
 | 移除 xcodeproj | ✅ | 仅 swiftc 构建 |
 
@@ -54,9 +62,10 @@ Quit（⌘Q）关闭 App **并** shutdown daemon。
 
 | 参数 | SDD 默认 | 当前 |
 |------|----------|------|
-| partial_interval | 0.25s | **0.5s**（`MACOSASR_PARTIAL_INTERVAL` 可覆盖） |
-| partial_max_audio | — | **8.0s**；到期滚动提交当前段 final，并继续新一句 partial |
-| partial_roll_min / partial_roll_silence | — | **8.0s / 0.40s**；8 秒前不因短换气切句，到期优先在静音处切 |
+| partial_interval | 0.25s | **0.5s**（Settings 实时热更新；`MACOSASR_PARTIAL_INTERVAL` 可覆盖） |
+| native_streaming | — | **True**（`Qwen3StreamingSession`：8s 块缓存 + `unfixed_tokens=6` 前缀回退，单段上限 48s 自动封窗续写） |
+| semantic_endpointing | — | **True**（闭合句末快通道 `0.50x`/问句 `0.45x`，下限 `0.80s`；未闭合/悬空词保持完整 `vad_end_silence`） |
+| 自定义热词 / 屏幕语境 | — | Settings 预置开发热词热更新；屏幕/光标语境默认 **OFF**（本地只读、自动跳过密码框） |
 | 识别语言 | Chinese | Settings…；持久化 Application Support |
 | ASR 模型 | Qwen3-ASR-0.6B | Settings…；默认 `mlx-community/Qwen3-ASR-0.6B-8bit`，可选 `mlx-community/Qwen3-ASR-1.7B-8bit` |
 | 触发方式 | Fn+V PTT（P1） | **⌥Z Toggle**（全局 + 菜单）；菜单 Start/Stop 仍可用 |
@@ -83,5 +92,7 @@ Quit（⌘Q）关闭 App **并** shutdown daemon。
 | 2026-08-18 | 长句滚动提交：8s 左右提交当前段并继续听写；实机 10s/18s 长口述未再出现连续卡顿，准确率无明显下降 |
 | 2026-06-12 | P2-3 后台注入：partial/final/filter 只入队，退格/打字和 pending 状态收敛到专用串行队列 |
 | 2026-06-15 | P2-1/P2-4：用户输入保护；启动校准后关麦，听写 session 按需开关麦克风 |
+| 2026-10-16 | `RollingTranscript`：分离 8s 计算窗口与语义定稿，跨窗保持同一 `utterance_id` |
+| 2026-11-24 | 四项核心突破落地：BPE 空格修复 + Qwen3-ASR 原生 8s 块缓存/Prefix Rollback 流式 + 语义标点双速断句 + Settings 热词热更新/可选 AX 屏幕语境/Prompt 回声过滤 |
 
 Agent 交接归档见 [`archive/AGENT_HANDOFF.md`](./archive/AGENT_HANDOFF.md)。

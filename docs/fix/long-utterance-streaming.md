@@ -1,9 +1,10 @@
-# 长句 live 听写停更：问题、修复与验证
+# 长句 live 听写停更：问题、修复与演进
 
-- 日期：2026-08-18
-- 分支：`codex/asr-accuracy-context-experiment`
-- 状态：已按分段提交落地（默认开启）；实机长句听写反馈为流畅性明显改善，准确率无明显下降
-- 相关代码：`asr/partial_engine.py`、`asr/asr_core.py`、`asr/config.py`
+- 日期：2026-08-18（2026-11-24 已升级为 Qwen3-ASR 原生 8s 块缓存 + Prefix Rollback 流式引擎）
+- 状态：**已落地并持续演进至原生块缓存流式**（见 `asr/streaming_decoder.py`、`asr/partial_engine.py`、`asr/endpointing.py`）
+- 相关代码：`asr/streaming_decoder.py`、`asr/partial_engine.py`、`asr/asr_core.py`、`asr/endpointing.py`、`asr/config.py`
+
+> **演进说明（2026-11-24 更新）**：本文记录的「8s 分段提交 final」为 2026-08 第一阶段修复；随后在 `37d13c4` 升级为 `RollingTranscript` 跨窗修订，并在最新 `fix/asr-accuracy-fluency-breakthroughs` 进一步升级为 **Qwen3-ASR 原生 8s `AudioEncoder` 块缓存 + Assistant Prefix Rollback 流式解码**（单步实测 200–375ms、0 次切窗对齐失败、单段最长 48s 自动安全封窗），同时保留 `RollingTranscript` 作为非 Qwen3 模型的回退路径。
 
 ---
 

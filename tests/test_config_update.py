@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from asr.asr_core import format_hotwords_prompt
+from asr.asr_core import format_hotwords_prompt, is_prompt_echo_hallucination
 from asr.config import AsrConfig
 from asr_daemon.server import DaemonServer
 from asr_daemon.session import SessionController
@@ -180,6 +180,15 @@ class HotwordsAndScreenContextTests(unittest.TestCase):
         settings = (root / "MacApp/macosAsrApp/SettingsWindowController.swift").read_text()
         self.assertIn("screenContextCheckbox", settings)
         self.assertIn("hotwordsTextView", settings)
+
+    def test_prompt_echo_hallucination_guardrail(self) -> None:
+        prompt = "常用术语：FastAPI, PostgreSQL\n当前窗口：T3 Code (Beta) - T3 Code (Beta)\n前文：主干上推到远端。"
+        leaked = "当前窗口：T3 Code (Beta) - T3 Code (Beta) 前文：主干上推到远端。"
+        self.assertTrue(is_prompt_echo_hallucination(leaked, prompt, audio_seconds=0.80))
+        self.assertTrue(is_prompt_echo_hallucination("当前窗口：T3 Code (Beta)", prompt, audio_seconds=1.2))
+        # Real speech mentioning similar words without echoing prompt markers must pass.
+        self.assertFalse(is_prompt_echo_hallucination("请帮我把当前窗口关掉。", prompt, audio_seconds=2.0))
+        self.assertFalse(is_prompt_echo_hallucination("主干上推到远端。", prompt, audio_seconds=3.0))
 
 
 if __name__ == "__main__":

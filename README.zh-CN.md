@@ -218,20 +218,20 @@ cd /path/to/macosAsr
 
 使用 `macosAsr Local` 签名后，**一般不需要**重复授权辅助功能。
 
-### 高级：partial 刷新间隔
+### 设置页与听写参数
 
-默认 **0.5 秒**（`asr/config.py`）。启动 daemon 前可覆盖：
+在菜单栏 **🎤 ASR → Settings…** 中可直接调整并持久保存至 `~/Library/Application Support/macosAsr/config.json`：
 
-```bash
-export MACOSASR_PARTIAL_INTERVAL=0.8
-./scripts/launch_macapp.sh
-```
+- **Recognition language**：中文 / English
+- **ASR model**：默认 `mlx-community/Qwen3-ASR-0.6B-8bit`（推荐，兼顾延迟与准确率），可选 `Qwen3-ASR-1.7B-8bit`（切换模型需重启 App）
+- **Sentence end wait / Live text refresh**：即时热更新，无需重启（默认 `1.5s` / `0.5s`，也支持启动前用 `MACOSASR_PARTIAL_INTERVAL`、`MACOSASR_VAD_END_SILENCE` 覆盖）
+- **Custom hotwords / terms**：预置常用开发与项目术语，支持自由增删改并点击 **Save & Apply** 即时生效，显著提升中英混说与专有名词识别率
+- **Read active window & cursor context（默认关闭）**：按需勾选后，在按 `⌥Z` 时本地读取当前窗口标题与光标前最多 120 字辅助纠偏（不出本机、不记日志、自动跳过密码框与密码管理器）
 
-数值越小 live 感越强，GPU/注入开销越大。设置页不提供此项调整。
+**流式与断句机制（当前默认启用）**：
 
-长句会在累计约 **8 秒**后停止刷新 partial，避免反复对整句音频重跑推理；停止说话后 final 仍会输出并修正整句。
-
-识别语言在 **Settings…**（中文 / English）中配置，保存在 `~/Library/Application Support/macosAsr/config.json`。
+- **Qwen3-ASR 原生 8 秒块缓存 + Prefix Rollback 流式引擎**：缓存已完成 8 秒音频编码块并单调锁定稳定前缀，同时保留末尾约 6 个 Token（2~3 秒）可修订，长句连续口述（最长 48 秒自动安全封窗续写）全程不卡顿、不丢中英空格、不回删前文。
+- **语义标点双速断句**：完整陈述句 / 问句停嘴约 `0.9s–1.0s`（相对 `2.0s` 设定）即干脆定稿；遇到逗号、连接词或半句思考停顿自动保持完整 `Sentence end wait`，防止抢话切句。
 
 ---
 

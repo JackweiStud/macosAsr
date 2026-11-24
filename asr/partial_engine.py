@@ -17,6 +17,7 @@ from asr.asr_core import (
     AudioBlock,
     audio_rms,
     generate_utterance_text,
+    is_prompt_echo_hallucination,
     load_model,
     merge_context_system_prompt,
     require_runtime_dependencies,
@@ -701,6 +702,9 @@ class PartialEngine:
                 utterance.last_partial_at = partial_call_at
                 utterance.last_partial_voice_at = voice_snapshot
                 utterance.max_partial_ms = max(utterance.max_partial_ms, step.elapsed_ms)
+                if is_prompt_echo_hallucination(step.text, effective_cfg.system_prompt, utterance_seconds):
+                    logger.warning("dropped prompt_echo partial u=%s audio_s=%.2f", utterance.utterance_id, utterance_seconds)
+                    return
                 partial_text = utterance.transcript.update(step.text)
                 self._publish_partial(utterance, partial_text, partial_call_at)
                 logger.debug(
@@ -928,6 +932,12 @@ class PartialEngine:
             hypothesis = ""
         if utterance.streaming_session is not None:
             utterance.streaming_session.reset()
+        if hypothesis and is_prompt_echo_hallucination(hypothesis, effective_cfg.system_prompt, final_audio_seconds):
+            logger.warning("filtered prompt_echo final u=%s final_audio_seconds=%.2f", utterance.utterance_id, final_audio_seconds)
+            hypothesis = ""
+            if not utterance.transcript.committed:
+                self._callback.on_filtered(utterance.utterance_id, "", "prompt_echo", self._utterance_timestamp(utterance))
+                return
         final_text = utterance.transcript.finish(hypothesis)
         final_ms = (time.perf_counter() - final_start) * 1000.0
         uid = utterance.utterance_id
