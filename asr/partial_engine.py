@@ -18,6 +18,7 @@ from asr.asr_core import (
     audio_rms,
     generate_utterance_text,
     load_model,
+    merge_context_system_prompt,
     require_runtime_dependencies,
     should_drop_final_text,
     stream_utterance_text,
@@ -615,9 +616,14 @@ class PartialEngine:
             self._checkpoint_utterance(utterance)
             return
 
+        partial_limit = (
+            cfg.rolling_max_audio_seconds
+            if cfg.partial_max_audio_seconds > 0 and cfg.rolling_max_audio_seconds > cfg.partial_max_audio_seconds
+            else cfg.partial_max_audio_seconds
+        )
         within_partial_window = (
-            cfg.partial_max_audio_seconds <= 0
-            or utterance_seconds <= cfg.partial_max_audio_seconds
+            partial_limit <= 0
+            or utterance_seconds <= partial_limit
         )
 
         if (
@@ -626,10 +632,25 @@ class PartialEngine:
             and now - utterance.last_partial_at >= cfg.partial_interval_seconds
         ):
             partial_call_at = time.perf_counter()
-            hypothesis = stream_utterance_text(self._model, utterance.blocks, cfg)
+            effective_cfg = self._config_for_utterance(utterance)
+            hypothesis = stream_utterance_text(self._model, utterance.blocks, effective_cfg)
             utterance.last_partial_at = partial_call_at
             partial_text = utterance.transcript.update(hypothesis)
             self._publish_partial(utterance, partial_text, partial_call_at)
+
+    def _config_for_utterance(self, utterance: _UtteranceState) -> AsrConfig:
+        cfg = self._config
+        committed = utterance.transcript.committed
+        if not cfg.previous_final_context_enabled or not committed:
+            return cfg
+        merged_prompt = merge_context_system_prompt(
+            cfg.system_prompt,
+            committed,
+            cfg.previous_final_context_chars,
+        )
+        if merged_prompt == cfg.system_prompt:
+            return cfg
+        return dataclasses.replace(cfg, system_prompt=merged_prompt)
 
     def _publish_partial(self, utterance: _UtteranceState, text: str, called_at: float) -> None:
         if text and text != utterance.last_partial_text:
@@ -640,17 +661,32 @@ class PartialEngine:
             self._emit_partial(utterance, text)
 
     def _overlap_audio_blocks(self, blocks: list[AudioBlock]) -> list[AudioBlock]:
-        """Keep actual tail audio, preferring a nearby quiet frame boundary."""
+        """Keep actual tail audio, cutting at the center of a sustained quiet valley."""
         if len(blocks) < 2:
             return []
         seconds = self._audio_seconds(blocks)
+        block_sec = max(1e-3, seconds / len(blocks))
         overlap = min(max(self._config.input_block_seconds, self._config.rolling_overlap_seconds), seconds / 2)
         target = seconds - overlap
+        min_side = min(max(self._config.input_block_seconds, 1.2), seconds * 0.25)
+        search_low = max(min_side, target - 1.2)
+        search_high = min(seconds - min_side, target + 0.8)
+
+        frame_sq = [audio_rms(block.samples) ** 2 for block in blocks]
+        win_frames = max(1, min(int(round(0.16 / block_sec)), max(1, len(blocks) // 3)))
+        half_left = win_frames // 2
+        half_right = max(1, win_frames - half_left)
+        quiet_floor = self._active_threshold * 0.5 if self._active_threshold > 0 else 0.0
+
         elapsed = 0.0
         candidates: list[tuple[float, float, int]] = []
         for index, block in enumerate(blocks):
-            if index and abs(elapsed - target) <= 0.30:
-                candidates.append((audio_rms(block.samples), abs(elapsed - target), index))
+            if index and search_low - 1e-9 <= elapsed <= search_high + 1e-9:
+                lo = max(0, index - half_left)
+                hi = min(len(blocks), index + half_right)
+                window_rms = float(np.sqrt(sum(frame_sq[lo:hi]) / max(1, hi - lo)))
+                effective_rms = max(window_rms, quiet_floor)
+                candidates.append((effective_rms, abs(elapsed - target), index))
             elapsed += len(block.samples) / float(self._config.sample_rate)
         if candidates:
             _, _, start = min(candidates)
@@ -666,23 +702,28 @@ class PartialEngine:
         utterance.audio_seconds = max(utterance.audio_seconds, seconds)
         reason = self._utterance_roll_reason(seconds, utterance) or "resource_limit"
         called_at = time.perf_counter()
-        hypothesis = generate_utterance_text(self._model, utterance.blocks, cfg)
+        effective_cfg = self._config_for_utterance(utterance)
+        hypothesis = generate_utterance_text(self._model, utterance.blocks, effective_cfg)
         visible = utterance.transcript.update(hypothesis)
         utterance.last_partial_at = called_at
         overlap_blocks = self._overlap_audio_blocks(utterance.blocks)
         prefix_blocks = utterance.blocks[:len(utterance.blocks) - len(overlap_blocks)]
         overlap_hypothesis = (
-            generate_utterance_text(self._model, overlap_blocks, cfg)
+            generate_utterance_text(self._model, overlap_blocks, effective_cfg)
             if overlap_blocks and any(audio_rms(b.samples) >= self._active_threshold for b in overlap_blocks)
             else ""
         )
         # A suffix alone does not establish the audio/text boundary: an
         # overlap decode can omit its first words. Independently decode the
-        # audio leaving the window as well, so both sides must cover the full
-        # window transcript before the audio base may move.
+        # audio leaving the window only when overlap already matches the suffix,
+        # avoiding wasted GPU decodes on rejected checkpoints.
         prefix_hypothesis = (
-            generate_utterance_text(self._model, prefix_blocks, cfg)
-            if overlap_blocks and prefix_blocks and any(audio_rms(b.samples) >= self._active_threshold for b in prefix_blocks)
+            generate_utterance_text(self._model, prefix_blocks, effective_cfg)
+            if (
+                utterance.transcript.can_anchor_overlap(hypothesis, overlap_hypothesis)
+                and prefix_blocks
+                and any(audio_rms(b.samples) >= self._active_threshold for b in prefix_blocks)
+            )
             else ""
         )
         accepted = utterance.transcript.checkpoint(hypothesis, overlap_hypothesis, prefix_hypothesis)
@@ -741,8 +782,9 @@ class PartialEngine:
         final_start = time.perf_counter()
         # A resource fallback can leave only newly captured silence. Do not
         # decode that silence or discard text confirmed in earlier windows.
+        effective_cfg = self._config_for_utterance(utterance)
         hypothesis = (
-            generate_utterance_text(self._model, final_blocks, cfg)
+            generate_utterance_text(self._model, final_blocks, effective_cfg)
             if final_blocks and utterance.window_has_voice
             else ""
         )

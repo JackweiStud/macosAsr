@@ -8,6 +8,7 @@ finding a suffix would accept truncated overlap decodes and duplicate words.
 
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 import unicodedata
 
 
@@ -19,6 +20,20 @@ def _content_positions(text: str) -> tuple[str, list[int]]:
         if not character.isspace() and not unicodedata.category(character).startswith("P")
     ]
     return "".join(text[index] for index in positions), positions
+
+
+def _prefix_covers_cut(prefix: str, expected_prefix: str) -> bool:
+    """Verify outgoing audio covers expected_prefix, tolerating right-edge cut drift."""
+    if prefix == expected_prefix:
+        return True
+    if not prefix or not expected_prefix or len(expected_prefix) < 4:
+        return False
+    if abs(len(prefix) - len(expected_prefix)) > 1:
+        return False
+    stem_len = max(1, min(len(prefix), len(expected_prefix)) - 2)
+    if prefix[:stem_len] != expected_prefix[:stem_len]:
+        return False
+    return SequenceMatcher(None, prefix, expected_prefix).ratio() >= 0.80
 
 
 class RollingTranscript:
@@ -90,6 +105,16 @@ class RollingTranscript:
         self.last_error = None
         return self.text
 
+    def can_anchor_overlap(self, hypothesis: str, overlap_hypothesis: str) -> bool:
+        """Return True when overlap_hypothesis is a non-empty content suffix of hypothesis."""
+        if self._finished:
+            return False
+        overlap, _ = _content_positions(overlap_hypothesis)
+        if not overlap:
+            return False
+        content, _ = _content_positions(hypothesis)
+        return bool(content) and content.endswith(overlap)
+
     def checkpoint(self, hypothesis: str, overlap_hypothesis: str, prefix_hypothesis: str) -> bool:
         """Roll only when decodes of both audio sides cover the whole window.
 
@@ -115,12 +140,13 @@ class RollingTranscript:
         if not content.endswith(overlap):
             self._reject("overlap_not_suffix")
             return False
+        expected_prefix = content[:len(content) - len(overlap)]
         prefix, _ = _content_positions(prefix_hypothesis)
-        if prefix + overlap != content:
+        if not _prefix_covers_cut(prefix, expected_prefix):
             self._reject("audio_cut_coverage_mismatch")
             return False
 
-        overlap_start = len(candidate) - len(hypothesis) + positions[len(prefix)]
+        overlap_start = len(candidate) - len(hypothesis) + positions[len(expected_prefix)]
 
         self._text = candidate
         self._base = candidate[:overlap_start]

@@ -112,21 +112,25 @@ class RollingEngineTests(unittest.TestCase):
         utterance = engine._utterance
         with (
             patch("asr.partial_engine.generate_utterance_text", side_effect=[
-                "仍可见的正文", "不匹配", "仍可见的", "仍可见的正文", "不匹配", "仍可见的",
+                "仍可见的正文", "不匹配", "仍可见的正文", "不匹配",
             ]) as generate,
-            patch("asr.partial_engine.stream_utterance_text", return_value="仍可见的正文"),
+            patch("asr.partial_engine.stream_utterance_text", return_value="仍可见的正文更新") as stream,
         ):
             engine._process_active_utterance(0.3)
-            self.assertEqual(generate.call_count, 3)
+            # Suffix mismatch skips the redundant prefix decode (2 calls instead of 3).
+            self.assertEqual(generate.call_count, 2)
             original_blocks = list(utterance.blocks)
             engine._process_active_utterance(0.3)
-            self.assertEqual(generate.call_count, 3)
+            self.assertEqual(generate.call_count, 2)
             utterance.blocks.extend(_blocks(11.0, 2))
             engine._process_active_utterance(0.3)
-            self.assertEqual(generate.call_count, 3)
+            self.assertEqual(generate.call_count, 2)
+            # Live partial stays active during the expanded retry window (> partial_max_audio_seconds).
+            self.assertGreaterEqual(stream.call_count, 1)
+            self.assertEqual(callback.events[-1], ("partial", 7, "仍可见的正文更新", 1010.0))
             utterance.blocks.extend(_blocks(11.2, 1))
             engine._process_active_utterance(0.3)
-            self.assertEqual(generate.call_count, 6)
+            self.assertEqual(generate.call_count, 4)
         self.assertEqual(utterance.blocks[:10], original_blocks)
         self.assertEqual(utterance.transcript.text, "仍可见的正文")
         self.assertEqual(callback.warnings, [])
@@ -179,7 +183,7 @@ class RollingEngineTests(unittest.TestCase):
 
         def generate(_model, blocks, _config):
             decode_lengths.append(engine._audio_seconds(blocks))
-            return "连续讲话" if len(decode_lengths) % 3 == 1 else "无法对齐"
+            return "连续讲话" if len(decode_lengths) % 2 == 1 else "无法对齐"
 
         with patch("asr.partial_engine.generate_utterance_text", side_effect=generate):
             for _ in range(200):
@@ -312,7 +316,7 @@ class RollingEngineTests(unittest.TestCase):
                 engine, callback = _engine()
                 utterance = engine._utterance
                 utterance.blocks.extend(_blocks(11.0, 10))
-                with patch("asr.partial_engine.generate_utterance_text", side_effect=["已经显示的正文", "不匹配", "已经显示的"]):
+                with patch("asr.partial_engine.generate_utterance_text", side_effect=["已经显示的正文", "不匹配"]):
                     engine._process_active_utterance(0.3)
                 self.assertEqual(utterance.blocks, [])
                 self.assertEqual(utterance.transcript.committed, "已经显示的正文")
@@ -344,6 +348,65 @@ class RollingEngineTests(unittest.TestCase):
             engine._process_active_utterance(0.3)
         self.assertEqual(callback.events[-1], ("partial", 8, "下一句话", 1011.1))
         self.assertEqual(callback.events[0], ("partial", 7, "之前这个。", 1010.0))
+
+    def test_intra_utterance_committed_prefix_is_forwarded_as_context_to_later_windows(self) -> None:
+        engine, callback = _engine(
+            system_prompt="场景：后端开发\n前文：上一句结束。",
+            previous_final_context_enabled=True,
+            previous_final_context_chars=120,
+        )
+        utterance = engine._utterance
+        seen_prompts: list[str] = []
+
+        def fake_generate(_model, _blocks, cfg):
+            seen_prompts.append(cfg.system_prompt)
+            return next(gen_answers)
+
+        def fake_stream(_model, _blocks, cfg):
+            seen_prompts.append(cfg.system_prompt)
+            return "索引优化方案"
+
+        gen_answers = iter(["讨论 PostgreSQL 的索引优化", "索引优化", "讨论 PostgreSQL 的", "索引优化方案。"])
+        with (
+            patch("asr.partial_engine.generate_utterance_text", side_effect=fake_generate),
+            patch("asr.partial_engine.stream_utterance_text", side_effect=fake_stream),
+        ):
+            engine._process_active_utterance(0.3)
+            engine._process_active_utterance(0.3)
+            utterance.silence_run_seconds = 0.3
+            engine._process_active_utterance(0.3)
+
+        # First window uses base + previous final only.
+        self.assertEqual(seen_prompts[0], "场景：后端开发\n前文：上一句结束。")
+        # Partial & final after checkpoint include intra-utterance committed prefix.
+        self.assertEqual(seen_prompts[-2], "场景：后端开发\n前文：上一句结束。讨论 PostgreSQL 的")
+        self.assertEqual(seen_prompts[-1], "场景：后端开发\n前文：上一句结束。讨论 PostgreSQL 的")
+        self.assertEqual(callback.events[-1], ("final", 7, "讨论 PostgreSQL 的索引优化方案。", 1010.0))
+
+    def test_overlap_cut_prefers_sustained_pause_over_single_frame_plosive_dip(self) -> None:
+        engine, _ = _engine(
+            active=False,
+            sample_rate=100,
+            input_block_seconds=0.02,
+            rolling_overlap_seconds=2.5,
+        )
+        engine._active_threshold = 0.01
+        # 400 blocks * 0.02s = 8.0s; target cut is 5.5s (index 275).
+        blocks = [
+            AudioBlock(samples=np.full(2, 0.08, dtype=np.float32), captured_at=i * 0.02)
+            for i in range(400)
+        ]
+        # Single 20ms stop-consonant dip right at target 5.50s (index 275).
+        blocks[275] = AudioBlock(samples=np.full(2, 0.001, dtype=np.float32), captured_at=275 * 0.02)
+        # Sustained 200ms inter-phrase pause at 4.80s..5.00s (indices 240..249).
+        for idx in range(240, 250):
+            blocks[idx] = AudioBlock(samples=np.full(2, 0.001, dtype=np.float32), captured_at=idx * 0.02)
+
+        overlap = engine._overlap_audio_blocks(blocks)
+        cut_index = len(blocks) - len(overlap)
+        # Must land inside the sustained pause (with margin on both sides), not the 20ms dip at 275.
+        self.assertGreaterEqual(cut_index, 242)
+        self.assertLessEqual(cut_index, 247)
 
 
 if __name__ == "__main__":

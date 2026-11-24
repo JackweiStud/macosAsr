@@ -360,6 +360,16 @@ class DiscardUtteranceIPCTests(unittest.TestCase):
         self.assertEqual(self.events[1]["utterance_started_at"], 1001.0)
         self.assertIsNone(self.session.session_id)
 
+    def test_discard_utterance_clears_stale_previous_final_context(self) -> None:
+        self.session._base_system_prompt = "场景：开发"
+        self.session._config.previous_final_context_enabled = True
+        self.session.on_final(1, "识别错误的旧句子。", 1001.0)
+        self.assertIn("识别错误的旧句子。", self.session._config.system_prompt)
+
+        response = self._dispatch()[0]
+        self.assertTrue(response["discarded"])
+        self.assertEqual(self.session._config.system_prompt, "场景：开发")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -89,6 +89,7 @@ class SessionController(EventCallback):
     def discard_utterance(self, session_id: str, before: float) -> bool:
         if self._session_id is None or session_id != self._session_id:
             return False
+        self._reset_previous_final_context()
         self._engine.discard_utterance(before)
         return True
 

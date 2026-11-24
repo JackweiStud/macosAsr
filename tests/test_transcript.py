@@ -173,6 +173,22 @@ class RollingTranscriptTests(unittest.TestCase):
         self.assertEqual(transcript.committed, "")
         self.assertEqual(transcript.update("这是全部文字，然后继续。"), "这是全部文字，然后继续。")
 
+    def test_checkpoint_tolerates_single_cut_edge_homophone_in_prefix_while_keeping_full_text(self) -> None:
+        transcript = RollingTranscript()
+        # Full window decodes "我们今天继续讨论这个问题", overlap is "这个问题",
+        # outgoing prefix audio drifts only on the last cut-edge syllable ("讨轮").
+        self.assertTrue(transcript.can_anchor_overlap("我们今天继续讨论这个问题。", "这个问题。"))
+        self.assertTrue(transcript.checkpoint("我们今天继续讨论这个问题。", "这个问题。", "我们今天继续讨轮"))
+        # Committed text comes from the full-window hypothesis, not the cut-edge homophone.
+        self.assertEqual(transcript.committed, "我们今天继续讨论")
+        self.assertEqual(transcript.update("这个问题先这样处理。"), "我们今天继续讨论这个问题先这样处理。")
+
+    def test_checkpoint_still_rejects_prefix_drift_outside_cut_boundary(self) -> None:
+        transcript = RollingTranscript()
+        self.assertFalse(transcript.checkpoint("我们今天继续讨论这个问题。", "这个问题。", "他们今天继续讨论"))
+        self.assertEqual(transcript.last_error, "audio_cut_coverage_mismatch")
+        self.assertEqual(transcript.committed, "")
+
 
 if __name__ == "__main__":
     unittest.main()

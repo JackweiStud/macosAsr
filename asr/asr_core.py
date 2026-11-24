@@ -85,8 +85,47 @@ def current_rss_mib() -> Optional[float]:
     return rss / 1024.0
 
 
+CONTEXT_PREFIX_MARKER = "前文："
+
+
 def normalize_text(text: str) -> str:
     return " ".join(text.strip().split())
+
+
+def _join_context_fragments(left: str, right: str) -> str:
+    left = normalize_text(left)
+    right = normalize_text(right)
+    if not left:
+        return right
+    if not right:
+        return left
+    if left[-1].isascii() and left[-1].isalnum() and right[0].isascii() and right[0].isalnum():
+        return f"{left} {right}"
+    return f"{left}{right}"
+
+
+def merge_context_system_prompt(system_prompt: str, committed_text: str, max_chars: int) -> str:
+    """Append intra-utterance confirmed prefix into the trailing '前文：' slot."""
+    limit = max(0, max_chars)
+    committed_norm = normalize_text(committed_text)
+    if limit <= 0 or not committed_norm:
+        return system_prompt
+
+    base_prompt = system_prompt
+    prev_context = ""
+    newline_marker = f"\n{CONTEXT_PREFIX_MARKER}"
+    if newline_marker in system_prompt:
+        base_prompt, prev_context = system_prompt.rsplit(newline_marker, 1)
+    elif system_prompt.startswith(CONTEXT_PREFIX_MARKER):
+        base_prompt = ""
+        prev_context = system_prompt[len(CONTEXT_PREFIX_MARKER):]
+
+    combined = _join_context_fragments(prev_context, committed_norm)[-limit:]
+    if not combined:
+        return base_prompt
+    if base_prompt:
+        return f"{base_prompt}\n{CONTEXT_PREFIX_MARKER}{combined}"
+    return f"{CONTEXT_PREFIX_MARKER}{combined}"
 
 
 def compact_text(text: str) -> str:
@@ -116,6 +155,10 @@ def audio_rms(samples: np.ndarray) -> float:
 def stream_utterance_text(model, blocks: list[AudioBlock], config: AsrConfig) -> str:
     if not blocks:
         return ""
+    # Real Qwen3-ASR models expose _tokenizer + generate; decoding the full token
+    # sequence at once preserves BPE leading spaces and multi-token UTF-8 bytes.
+    if hasattr(model, "_tokenizer") and hasattr(model, "generate"):
+        return generate_utterance_text(model, blocks, config)
     audio_wave = np.concatenate([block.samples for block in blocks]).astype(np.float32, copy=False)
     pieces: list[str] = []
     for result in model.stream_transcribe(
@@ -129,7 +172,6 @@ def stream_utterance_text(model, blocks: list[AudioBlock], config: AsrConfig) ->
         text = getattr(result, "text", None)
         if text is None:
             text = str(result)
-        text = normalize_text(text)
         if text:
             pieces.append(text)
     return normalize_text("".join(pieces))
