@@ -23,6 +23,7 @@ final class ConfigManager {
     var customHotwords: String { config.customHotwords }
     var screenContextEnabled: Bool { config.screenContextEnabled }
     var oralPolishEnabled: Bool { config.oralPolishEnabled }
+    var hudEnabled: Bool { config.hudEnabled }
 
     func saveLanguage(_ language: String) throws {
         guard RecognitionLanguage(asrValue: language) != nil else {
@@ -73,6 +74,12 @@ final class ConfigManager {
         config.oralPolishEnabled = enabled
         try save()
         AppLogger.log("config_saved oral_polish_enabled=\(enabled) path=\(configURL.path)")
+    }
+
+    func saveHudEnabled(_ enabled: Bool) throws {
+        config.hudEnabled = enabled
+        try save()
+        AppLogger.log("config_saved hud_enabled=\(enabled) path=\(configURL.path)")
     }
 
     // MARK: - Private

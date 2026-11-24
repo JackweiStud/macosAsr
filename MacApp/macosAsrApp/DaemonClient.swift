@@ -10,6 +10,13 @@ struct DaemonEvent {
     var modelLoaded: Bool? { raw["model_loaded"] as? Bool }
     var calibrated: Bool? { raw["calibrated"] as? Bool }
     var warmedUp: Bool? { raw["warmed_up"] as? Bool }
+    var stage: String? { raw["stage"] as? String }
+    var downloadProgress: Double? { raw["download_progress"] as? Double }
+    var audioLevel: Double? { raw["level"] as? Double }
+    var speaking: Bool { raw["speaking"] as? Bool == true }
+    var durationSeconds: Double? { raw["duration_seconds"] as? Double }
+    var noiseFloor: Double? { raw["noise_floor"] as? Double }
+    var vadThreshold: Double? { raw["threshold"] as? Double }
     var sessionID: String? { raw["session_id"] as? String }
     var utterance: DictationUtterance? {
         guard let sessionID, !sessionID.isEmpty,

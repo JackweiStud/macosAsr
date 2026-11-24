@@ -9,6 +9,7 @@ struct AppConfig: Codable, Equatable {
     var customHotwords: String
     var screenContextEnabled: Bool
     var oralPolishEnabled: Bool
+    var hudEnabled: Bool
 
     static let defaultLanguage = "Chinese"
     static let defaultAsrModel = AsrModelPreset.qwen06B.rawValue
@@ -17,6 +18,7 @@ struct AppConfig: Codable, Equatable {
     static let defaultCustomHotwords = "macosAsr, Qwen3-ASR, MLX, FastAPI, PostgreSQL, Redis, WebSocket, REST API, TypeScript, Python, Swift, Git, GitHub, Git Commit, Pull Request, Docker, Kubernetes, Cursor, Codex, PartialEngine, VAD"
     static let defaultScreenContextEnabled = false
     static let defaultOralPolishEnabled = false
+    static let defaultHudEnabled = true
 
     static var defaults: AppConfig {
         AppConfig(
@@ -26,7 +28,8 @@ struct AppConfig: Codable, Equatable {
             vadEndSilenceSeconds: defaultVadEndSilenceSeconds,
             customHotwords: defaultCustomHotwords,
             screenContextEnabled: defaultScreenContextEnabled,
-            oralPolishEnabled: defaultOralPolishEnabled
+            oralPolishEnabled: defaultOralPolishEnabled,
+            hudEnabled: defaultHudEnabled
         )
     }
 
@@ -37,7 +40,8 @@ struct AppConfig: Codable, Equatable {
         vadEndSilenceSeconds: Double = defaultVadEndSilenceSeconds,
         customHotwords: String = defaultCustomHotwords,
         screenContextEnabled: Bool = defaultScreenContextEnabled,
-        oralPolishEnabled: Bool = defaultOralPolishEnabled
+        oralPolishEnabled: Bool = defaultOralPolishEnabled,
+        hudEnabled: Bool = defaultHudEnabled
     ) {
         self.language = language
         self.asrModel = asrModel
@@ -46,6 +50,7 @@ struct AppConfig: Codable, Equatable {
         self.customHotwords = customHotwords
         self.screenContextEnabled = screenContextEnabled
         self.oralPolishEnabled = oralPolishEnabled
+        self.hudEnabled = hudEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -56,6 +61,7 @@ struct AppConfig: Codable, Equatable {
         case customHotwords
         case screenContextEnabled
         case oralPolishEnabled
+        case hudEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -72,6 +78,8 @@ struct AppConfig: Codable, Equatable {
             ?? Self.defaultScreenContextEnabled
         oralPolishEnabled = try container.decodeIfPresent(Bool.self, forKey: .oralPolishEnabled)
             ?? Self.defaultOralPolishEnabled
+        hudEnabled = try container.decodeIfPresent(Bool.self, forKey: .hudEnabled)
+            ?? Self.defaultHudEnabled
     }
 }
 

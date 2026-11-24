@@ -20,6 +20,7 @@ swiftc -Onone \
   "$SRC/AppConfig.swift" \
   "$SRC/ConfigManager.swift" \
   "$SRC/ScreenContextReader.swift" \
+  "$SRC/FloatingHUDController.swift" \
   "$SRC/SettingsWindowController.swift" \
   "$SRC/AppLogger.swift" \
   "$SRC/ProjectPaths.swift" \

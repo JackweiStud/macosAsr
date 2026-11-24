@@ -16,6 +16,7 @@ import numpy as np
 from asr.asr_core import (
     AudioBlock,
     audio_rms,
+    compact_text,
     generate_utterance_text,
     is_prompt_echo_hallucination,
     load_model,
@@ -87,6 +88,11 @@ class _ConfigurePolisher:
     enabled: bool
 
 
+@dataclasses.dataclass(frozen=True)
+class _RecalibrateNoise:
+    pass
+
+
 class PartialEngine:
     """Mic always on; VAD/ASR runs only when listening=True.
 
@@ -104,7 +110,11 @@ class PartialEngine:
         self._callback = callback
         self._audio_queue: queue.Queue[AudioBlock] = queue.Queue(maxsize=1024)
         self._control_queue: queue.Queue[
-            tuple[str, threading.Event] | _DiscardUtterance | _FlushUtterance | _ConfigurePolisher
+            tuple[str, threading.Event]
+            | _DiscardUtterance
+            | _FlushUtterance
+            | _ConfigurePolisher
+            | _RecalibrateNoise
         ] = queue.Queue()
         self._polisher = OralPolisher()
         # AudioBlock timestamps use perf_counter; IPC timestamps use UNIX seconds.
@@ -123,6 +133,13 @@ class PartialEngine:
         self._calibrated = False
         self._model_loaded = False
         self._warmed_up = False
+        self._load_stage = "starting"
+        self._download_progress: float | None = None
+        self._downloaded_bytes = 0
+        self._total_bytes = 0
+        self._recalibrating = False
+        self._level_peak_rms = 0.0
+        self._last_level_emit_at = 0.0
         self._stream: object | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -152,6 +169,37 @@ class PartialEngine:
         return self._active_threshold
 
     @property
+    def noise_floor(self) -> float:
+        return self._measured_noise_floor
+
+    @property
+    def recalibrating(self) -> bool:
+        with self._lock:
+            return self._recalibrating
+
+    def load_status(self) -> dict[str, object]:
+        with self._lock:
+            return {
+                "stage": self._load_stage,
+                "download_progress": self._download_progress,
+                "downloaded_bytes": self._downloaded_bytes,
+                "total_bytes": self._total_bytes,
+            }
+
+    def _set_load_status(
+        self,
+        stage: str,
+        progress: float | None = None,
+        downloaded_bytes: int = 0,
+        total_bytes: int = 0,
+    ) -> None:
+        with self._lock:
+            self._load_stage = stage
+            self._download_progress = progress
+            self._downloaded_bytes = max(0, int(downloaded_bytes))
+            self._total_bytes = max(0, int(total_bytes))
+
+    @property
     def recording_active(self) -> bool:
         with self._stream_lock:
             return self._stream is not None
@@ -168,6 +216,8 @@ class PartialEngine:
                 now = time.perf_counter()
                 self._listen_started_at = now
                 self._last_audio_at = now
+                self._last_level_emit_at = now
+                self._level_peak_rms = 0.0
                 self._max_listen_rms = 0.0
                 self._mic_silent_warned = False
         logger.info("listening=%s", listening)
@@ -195,6 +245,15 @@ class PartialEngine:
         """Queue polisher load/unload on the MLX worker thread."""
         self._config.oral_polish_enabled = bool(enabled)
         self._control_queue.put(_ConfigurePolisher(enabled=bool(enabled)))
+
+    def request_recalibrate_noise(self) -> bool:
+        """Queue an on-demand background noise recalibration when idle."""
+        with self._lock:
+            if self._listening or self._recalibrating:
+                return False
+            self._recalibrating = True
+        self._control_queue.put(_RecalibrateNoise())
+        return True
 
     def start_recording(self) -> None:
         self._clear_audio_state()
@@ -345,8 +404,13 @@ class PartialEngine:
 
         try:
             logger.info("loading model on worker thread: %s", cfg.model)
-            self._model = load_model(cfg.model)
+            self._set_load_status("loading")
+            try:
+                self._model = load_model(cfg.model, on_progress=self._set_load_status)
+            except TypeError:
+                self._model = load_model(cfg.model)
             if cfg.warmup_enabled:
+                self._set_load_status("warming_up")
                 try:
                     stats = warm_up_asr_model(self._model, cfg)
                     self._warmed_up = True
@@ -359,7 +423,9 @@ class PartialEngine:
                     self._warmed_up = False
                     logger.exception("ASR warmup failed; continuing without warmup")
             self._model_loaded = True
+            self._set_load_status("calibrating")
             self._calibrate_noise(cfg)
+            self._set_load_status("ready")
             self._close_mic_stream()
             if cfg.oral_polish_enabled:
                 self._polisher.preload_if_cached(cfg.oral_polish_model)
@@ -394,6 +460,9 @@ class PartialEngine:
                     self._polisher.preload_if_cached(self._config.oral_polish_model)
                 else:
                     self._polisher.unload()
+                continue
+            if isinstance(cmd, _RecalibrateNoise):
+                self._run_recalibrate_noise()
                 continue
             if isinstance(cmd, _FlushUtterance) or (isinstance(cmd, tuple) and cmd[0] == "flush"):
                 before, done = (cmd.before, cmd.done) if isinstance(cmd, _FlushUtterance) else (time.perf_counter(), cmd[1])
@@ -459,6 +528,64 @@ class PartialEngine:
             self._pre_roll.clear()
             self._voiced_run_seconds = 0.0
             self._voiced_run_started_at = None
+
+    def _run_recalibrate_noise(self) -> None:
+        """Temporarily open the mic while idle, re-measure noise floor, then close."""
+        cfg = self._config
+        if self.is_listening():
+            with self._lock:
+                self._recalibrating = False
+            on_failed = getattr(self._callback, "on_calibration_failed", None)
+            if callable(on_failed):
+                on_failed("cannot recalibrate while dictation is active")
+            return
+
+        on_started = getattr(self._callback, "on_calibration_started", None)
+        if callable(on_started):
+            on_started(max(0.0, float(cfg.noise_calibration_seconds)))
+
+        opened_here = False
+        try:
+            self._clear_audio_state()
+            if not self.recording_active:
+                self._open_mic_stream()
+                opened_here = True
+            self._calibrate_noise(cfg)
+        except Exception as exc:
+            logger.warning("recalibrate_noise failed: %s", exc)
+            on_failed = getattr(self._callback, "on_calibration_failed", None)
+            if callable(on_failed):
+                on_failed(str(exc))
+        else:
+            on_done = getattr(self._callback, "on_calibration_done", None)
+            if callable(on_done):
+                on_done(self._measured_noise_floor, self._active_threshold)
+        finally:
+            if opened_here and not self.is_listening():
+                self._close_mic_stream()
+            self._clear_audio_state()
+            with self._lock:
+                self._recalibrating = False
+
+    def _emit_audio_level_if_due(self, block_rms: float, speaking: bool) -> None:
+        on_level = getattr(self._callback, "on_audio_level", None)
+        if not callable(on_level):
+            return
+        if block_rms > self._level_peak_rms:
+            self._level_peak_rms = block_rms
+        now = time.perf_counter()
+        if now - self._last_level_emit_at < 0.065:
+            return
+        peak = self._level_peak_rms
+        self._level_peak_rms = 0.0
+        self._last_level_emit_at = now
+        # Normalize relative to active VAD threshold for consistent visual bar motion.
+        ref = max(self._active_threshold * 5.0, 0.03)
+        normalized = min(1.0, max(0.0, (peak / ref) ** 0.65))
+        try:
+            on_level(normalized, speaking)
+        except Exception:
+            logger.debug("audio level callback failed", exc_info=True)
 
     def _calibrate_noise(self, cfg: AsrConfig) -> None:
         if cfg.noise_calibration_seconds <= 0:
@@ -576,6 +703,12 @@ class PartialEngine:
                 if block_rms > self._max_listen_rms:
                     self._max_listen_rms = block_rms
                 utterance = self._utterance
+                speaking_now = bool(
+                    (utterance is not None and utterance.silence_run_seconds < 0.25)
+                    or block_rms >= self._active_threshold
+                )
+                if listening_override is None:
+                    self._emit_audio_level_if_due(block_rms, speaking_now)
                 if utterance is None:
                     if block_rms >= self._active_threshold:
                         if self._voiced_run_started_at is None:
@@ -965,6 +1098,10 @@ class PartialEngine:
         final_text = utterance.transcript.finish(hypothesis)
         polish_suffix = ""
         if final_text and not should_drop_final_text(final_text, cfg) and cfg.oral_polish_enabled:
+            if len(compact_text(final_text)) >= max(1, cfg.oral_polish_min_chars):
+                on_polishing = getattr(self._callback, "on_polishing", None)
+                if callable(on_polishing):
+                    on_polishing(utterance.utterance_id)
             polish_res = self._polisher.polish(final_text, cfg)
             final_text = polish_res.text
             polish_suffix = f" polish={polish_res.mode}({polish_res.reason},{polish_res.elapsed_ms:.0f}ms)"

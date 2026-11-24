@@ -5,11 +5,12 @@ from __future__ import annotations
 import dataclasses
 import sys
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
 from asr.config import AsrConfig
+from asr.model_download import ProgressCallback, resolve_or_download_model
 
 try:
     import sounddevice as sd
@@ -64,14 +65,22 @@ def list_devices() -> None:
     print(sd.query_devices())
 
 
-def load_model(model_name: str):
+def load_model(model_name: str, *, on_progress: ProgressCallback | None = None):
     if load_asr_model is None:
         raise RuntimeError(
             "mlx_audio is not installed or failed to import.\n"
             "Install with: pip install -r requirements.txt"
         )
     print(f"Loading model: {model_name}")
-    return load_asr_model(model_name)
+    resolved = model_name
+    try:
+        resolved = resolve_or_download_model(model_name, on_progress=on_progress)
+    except Exception:
+        # Preserve original mlx_audio loading fallback if pre-resolution fails.
+        resolved = model_name
+    if on_progress is not None:
+        on_progress("loading", None, 0, 0)
+    return load_asr_model(resolved)
 
 
 def current_rss_mib() -> Optional[float]:

@@ -51,6 +51,36 @@ class _CallbackBridge(EventCallback):
         if self._target:
             self._target.on_warning(message, code)
 
+    def on_audio_level(self, level: float, speaking: bool) -> None:
+        if self._target:
+            fn = getattr(self._target, "on_audio_level", None)
+            if callable(fn):
+                fn(level, speaking)
+
+    def on_polishing(self, utterance_id: int) -> None:
+        if self._target:
+            fn = getattr(self._target, "on_polishing", None)
+            if callable(fn):
+                fn(utterance_id)
+
+    def on_calibration_started(self, duration_seconds: float) -> None:
+        if self._target:
+            fn = getattr(self._target, "on_calibration_started", None)
+            if callable(fn):
+                fn(duration_seconds)
+
+    def on_calibration_done(self, noise_floor: float, threshold: float) -> None:
+        if self._target:
+            fn = getattr(self._target, "on_calibration_done", None)
+            if callable(fn):
+                fn(noise_floor, threshold)
+
+    def on_calibration_failed(self, message: str) -> None:
+        if self._target:
+            fn = getattr(self._target, "on_calibration_failed", None)
+            if callable(fn):
+                fn(message)
+
 
 class DaemonServer:
     def __init__(self, socket_path: Path, config: AsrConfig, *, skip_model: bool = False) -> None:
@@ -245,15 +275,25 @@ class DaemonServer:
 
         cmd = msg.get("cmd")
         if cmd == "ping":
-            return [
-                {
-                    "protocol": 1,
-                    "type": "pong",
-                    "model_loaded": self.model_loaded,
-                    "warmed_up": self.warmed_up,
-                    "calibrated": self._engine.calibrated if self._engine else False,
-                }
-            ]
+            load_status = self._engine.load_status() if self._engine else {
+                "stage": "starting",
+                "download_progress": None,
+                "downloaded_bytes": 0,
+                "total_bytes": 0,
+            }
+            pong = {
+                "protocol": 1,
+                "type": "pong",
+                "model_loaded": self.model_loaded,
+                "warmed_up": self.warmed_up,
+                "calibrated": self._engine.calibrated if self._engine else False,
+                "stage": load_status.get("stage", "starting"),
+            }
+            if load_status.get("download_progress") is not None:
+                pong["download_progress"] = round(float(load_status["download_progress"]), 4)
+                pong["downloaded_bytes"] = int(load_status.get("downloaded_bytes", 0))
+                pong["total_bytes"] = int(load_status.get("total_bytes", 0))
+            return [pong]
         if cmd == "get_status":
             if self._session is None:
                 return [
@@ -319,6 +359,20 @@ class DaemonServer:
             discarded = self._session.discard_utterance(session_id, cutoff)
             # A click queued just before stop/restart is harmless, not a daemon failure.
             return [{"protocol": 1, "type": "utterance_discarded", "session_id": session_id, "before": cutoff, "discarded": discarded}]
+        if cmd == "recalibrate_noise":
+            if self._engine is None or not self.model_loaded:
+                return [{"protocol": 1, "type": "error", "message": "model not loaded", "code": "not_ready"}]
+            if self._session.session_id is not None or self._engine.is_listening():
+                return [
+                    {
+                        "protocol": 1,
+                        "type": "error",
+                        "message": "stop dictation before recalibrating noise",
+                        "code": "session_active",
+                    }
+                ]
+            accepted = self._engine.request_recalibrate_noise()
+            return [{"protocol": 1, "type": "recalibrate_accepted", "accepted": accepted}]
         if cmd == "shutdown":
             threading.Thread(target=self.stop, daemon=True).start()
             return [{"protocol": 1, "type": "error", "message": "shutting down", "code": "shutdown"}]

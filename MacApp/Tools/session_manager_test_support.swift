@@ -15,6 +15,7 @@ final class ConfigManager {
     let customHotwords = ""
     let screenContextEnabled = false
     let oralPolishEnabled = false
+    let hudEnabled = true
 }
 
 enum ProjectPaths {

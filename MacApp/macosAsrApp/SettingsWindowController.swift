@@ -16,10 +16,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         target: nil,
         action: nil
     )
+    private let hudCheckbox = NSButton(
+        checkboxWithTitle: "Show floating status HUD capsule while dictating",
+        target: nil,
+        action: nil
+    )
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 590),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 646),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -175,12 +180,23 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         screenContextHint.textColor = .secondaryLabelColor
         screenContextHint.translatesAutoresizingMaskIntoConstraints = false
 
+        hudCheckbox.target = self
+        hudCheckbox.action = #selector(hudToggled(_:))
+        hudCheckbox.translatesAutoresizingMaskIntoConstraints = false
+
+        let hudHint = NSTextField(
+            wrappingLabelWithString: "Non-activating, click-through bottom capsule showing live mic meter, polishing status, and noise calibration progress without stealing focus."
+        )
+        hudHint.font = NSFont.systemFont(ofSize: 11)
+        hudHint.textColor = .secondaryLabelColor
+        hudHint.translatesAutoresizingMaskIntoConstraints = false
+
         for view in [
             label, languagePopUp, advancedTitle, modelLabel, asrModelPopUp,
             vadLabel, vadEndSilencePopUp, partialLabel, partialIntervalPopUp, hint,
             contextTitle, hotwordsLabel, scrollView, applyHotwordsButton,
             resetHotwordsButton, hotwordsStatusLabel, oralPolishLabel, oralPolishPopUp,
-            oralPolishHint, screenContextCheckbox, screenContextHint,
+            oralPolishHint, screenContextCheckbox, screenContextHint, hudCheckbox, hudHint,
         ] {
             contentView.addSubview(view)
         }
@@ -265,6 +281,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             screenContextHint.topAnchor.constraint(equalTo: screenContextCheckbox.bottomAnchor, constant: 4),
             screenContextHint.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 42),
             screenContextHint.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
+
+            hudCheckbox.topAnchor.constraint(equalTo: screenContextHint.bottomAnchor, constant: 12),
+            hudCheckbox.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+
+            hudHint.topAnchor.constraint(equalTo: hudCheckbox.bottomAnchor, constant: 4),
+            hudHint.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 42),
+            hudHint.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
         ])
     }
 
@@ -292,6 +315,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             value: ConfigManager.shared.oralPolishEnabled ? OralPolishPreset.localLLM.rawValue : OralPolishPreset.off.rawValue
         )
         screenContextCheckbox.state = ConfigManager.shared.screenContextEnabled ? .on : .off
+        hudCheckbox.state = ConfigManager.shared.hudEnabled ? .on : .off
     }
 
     @objc private func languageChanged(_ sender: NSPopUpButton) {
@@ -349,6 +373,17 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         let enabled = sender.state == .on
         do {
             try ConfigManager.shared.saveScreenContextEnabled(enabled)
+        } catch {
+            AppLogger.log("config_save_failed \(error.localizedDescription)", level: "ERROR")
+            reloadFromConfig()
+        }
+    }
+
+    @objc private func hudToggled(_ sender: NSButton) {
+        let enabled = sender.state == .on
+        do {
+            try ConfigManager.shared.saveHudEnabled(enabled)
+            FloatingHUDController.shared.setEnabled(enabled)
         } catch {
             AppLogger.log("config_save_failed \(error.localizedDescription)", level: "ERROR")
             reloadFromConfig()

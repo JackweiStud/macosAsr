@@ -9,6 +9,7 @@ SWIFT_SOURCES=(
   MacApp/macosAsrApp/AppConfig.swift
   MacApp/macosAsrApp/ConfigManager.swift
   MacApp/macosAsrApp/ScreenContextReader.swift
+  MacApp/macosAsrApp/FloatingHUDController.swift
   MacApp/macosAsrApp/SettingsWindowController.swift
   MacApp/macosAsrApp/AppLogger.swift
   MacApp/macosAsrApp/ProjectPaths.swift

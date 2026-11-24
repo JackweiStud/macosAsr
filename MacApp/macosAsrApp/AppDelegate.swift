@@ -7,10 +7,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var liveDictation = LiveDictationController(stateMachine: stateMachine)
 
     private var startStopMenuItem: NSMenuItem?
+    private var recalibrateMenuItem: NSMenuItem?
     private var statusMenuItem: NSMenuItem?
     private var preDictationApp: NSRunningApplication?
     private let hotkeyMonitor = GlobalHotkeyMonitor()
     private var didWarnInputMonitoring = false
+    private var lastThresholdSummary: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -27,9 +29,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
-        // 监听 daemon 状态，驱动菜单栏 UI
+        // 监听 daemon 状态、下载进度、音量电平与噪音重校准事件，驱动菜单栏 + 悬浮 HUD
         DaemonManager.shared.onStateChange = { [weak self] state in
             self?.applyDaemonState(state)
+        }
+        DaemonManager.shared.onLoadingStatusChange = { [weak self] status in
+            self?.applyLoadingStatus(status)
+        }
+        DaemonManager.shared.onAudioLevel = { level, speaking in
+            FloatingHUDController.shared.updateAudioLevel(level, speaking: speaking)
+        }
+        DaemonManager.shared.onPolishing = {
+            if DaemonManager.shared.state == .listening {
+                FloatingHUDController.shared.update(.polishing)
+            }
+        }
+        DaemonManager.shared.onUtteranceSettled = {
+            if DaemonManager.shared.state == .listening {
+                FloatingHUDController.shared.update(.listening(speaking: false))
+            }
+        }
+        DaemonManager.shared.onNoiseCalibrationEvent = { [weak self] event in
+            self?.handleNoiseCalibrationEvent(event)
         }
 
         // 启动后立即 warm daemon（不再等用户点 Start）
@@ -105,6 +126,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(startStop)
         startStopMenuItem = startStop
 
+        let recalibrate = NSMenuItem(
+            title: "Recalibrate Noise…",
+            action: #selector(recalibrateNoise),
+            keyEquivalent: ""
+        )
+        recalibrate.isEnabled = false
+        menu.addItem(recalibrate)
+        recalibrateMenuItem = recalibrate
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(
             NSMenuItem(
@@ -146,7 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.contentTintColor = nil
     }
 
-    private func applyDaemonState(_ state: DaemonState) {
+    private func applyDaemonState(_ state: DaemonState, updateHUD: Bool = true) {
         guard let button = statusItem?.button else { return }
         resetStatusBarButtonStyle()
 
@@ -156,39 +186,109 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusMenuItem?.title = "Status: Not started"
             startStopMenuItem?.title = "Start Live Dictation"
             startStopMenuItem?.isEnabled = false
+            recalibrateMenuItem?.isEnabled = false
+            if updateHUD { FloatingHUDController.shared.update(.hidden) }
         case .loading:
-            button.title = "⏳ ASR"
-            statusMenuItem?.title = "Status: Loading model…"
+            applyLoadingStatus(DaemonManager.shared.loadingStatus)
             startStopMenuItem?.title = "Start Live Dictation (loading…)"
             startStopMenuItem?.isEnabled = false
+            recalibrateMenuItem?.isEnabled = false
         case .ready:
-            button.title = "🎤 ASR"
-            statusMenuItem?.title = "Status: Ready"
-            startStopMenuItem?.title = "Start Live Dictation"
-            startStopMenuItem?.isEnabled = true
+            if DaemonManager.shared.isRecalibratingNoise {
+                button.title = "⏳ Calibrating…"
+                statusMenuItem?.title = "Status: Calibrating noise (stay quiet)…"
+                startStopMenuItem?.title = "Start Live Dictation"
+                startStopMenuItem?.isEnabled = false
+                recalibrateMenuItem?.isEnabled = false
+            } else {
+                button.title = "🎤 ASR"
+                statusMenuItem?.title = lastThresholdSummary.map { "Status: Ready (\($0))" } ?? "Status: Ready"
+                startStopMenuItem?.title = "Start Live Dictation"
+                startStopMenuItem?.isEnabled = true
+                recalibrateMenuItem?.isEnabled = true
+            }
+            if updateHUD && !DaemonManager.shared.isRecalibratingNoise {
+                FloatingHUDController.shared.update(.hidden)
+            }
         case .starting:
             button.title = "⏳ ASR"
             statusMenuItem?.title = DaemonManager.shared.desiredListening ? "Status: Starting…" : "Status: Starting… (stop requested)"
             startStopMenuItem?.title = DaemonManager.shared.desiredListening ? "Cancel Start" : "Resume Start"
             startStopMenuItem?.isEnabled = true
+            recalibrateMenuItem?.isEnabled = false
+            if updateHUD { FloatingHUDController.shared.update(.starting) }
         case .stopping:
             button.title = "⏳ ASR"
             statusMenuItem?.title = DaemonManager.shared.desiredListening ? "Status: Finishing… Restart queued" : "Status: Finishing…"
             startStopMenuItem?.title = DaemonManager.shared.desiredListening ? "Cancel Queued Restart" : "Start After Finishing"
             startStopMenuItem?.isEnabled = true
+            recalibrateMenuItem?.isEnabled = false
+            if updateHUD { FloatingHUDController.shared.update(.finishing) }
         case .listening:
             // 绿点用 emoji；文字交给系统着色（深色菜单栏自动变白）
             button.title = "🟢 Dictating…"
             statusMenuItem?.title = "Status: Dictating…"
             startStopMenuItem?.title = "Stop Live Dictation"
             startStopMenuItem?.isEnabled = true
+            recalibrateMenuItem?.isEnabled = false
+            if updateHUD { FloatingHUDController.shared.update(.listening(speaking: false)) }
         case let .error(msg):
             button.title = "⚠️ ASR"
             statusMenuItem?.title = "Status: Error"
             startStopMenuItem?.title = "Restart ASR Daemon"
             startStopMenuItem?.isEnabled = true
+            recalibrateMenuItem?.isEnabled = false
+            if updateHUD { FloatingHUDController.shared.update(.hidden) }
             AppLogger.log("daemon_error_state \(msg)", level: "ERROR")
         }
+    }
+
+    private func applyLoadingStatus(_ status: DaemonLoadingStatus?) {
+        guard DaemonManager.shared.state == .loading, let button = statusItem?.button else { return }
+        switch status?.stage {
+        case "downloading":
+            if let progress = status?.downloadProgress {
+                let pct = Int(round(max(0, min(1, progress)) * 100))
+                button.title = "⏳ \(pct)%"
+                statusMenuItem?.title = "Status: Downloading model… \(pct)%"
+                FloatingHUDController.shared.update(.downloading(progress: progress))
+            } else {
+                button.title = "⏳ ASR"
+                statusMenuItem?.title = "Status: Downloading model…"
+                FloatingHUDController.shared.update(.downloading(progress: 0))
+            }
+        case "warming_up":
+            button.title = "⏳ ASR"
+            statusMenuItem?.title = "Status: Warming up…"
+            FloatingHUDController.shared.update(.hidden)
+        case "calibrating":
+            button.title = "⏳ ASR"
+            statusMenuItem?.title = "Status: Calibrating noise…"
+            FloatingHUDController.shared.update(.hidden)
+        default:
+            button.title = "⏳ ASR"
+            statusMenuItem?.title = "Status: Loading model…"
+            FloatingHUDController.shared.update(.hidden)
+        }
+    }
+
+    private func handleNoiseCalibrationEvent(_ event: NoiseCalibrationEvent) {
+        switch event {
+        case .started:
+            applyDaemonState(DaemonManager.shared.state, updateHUD: false)
+            FloatingHUDController.shared.update(.calibrating)
+        case let .done(_, threshold):
+            lastThresholdSummary = String(format: "VAD %.3f", threshold)
+            applyDaemonState(DaemonManager.shared.state, updateHUD: false)
+            FloatingHUDController.shared.update(.calibrationDone, autoHideAfter: 1.4)
+        case let .failed(message):
+            applyDaemonState(DaemonManager.shared.state, updateHUD: false)
+            FloatingHUDController.shared.update(.calibrationFailed(message), autoHideAfter: 2.2)
+        }
+    }
+
+    @objc private func recalibrateNoise() {
+        DaemonManager.shared.recalibrateNoise()
     }
 
     // MARK: - 菜单动作

@@ -178,6 +178,59 @@ class SessionController(EventCallback):
             }
         )
 
+    def on_audio_level(self, level: float, speaking: bool) -> None:
+        if self._session_id is None:
+            return
+        self._emit(
+            {
+                "protocol": 1,
+                "type": "audio_level",
+                "session_id": self._session_id,
+                "level": round(max(0.0, min(1.0, float(level))), 3),
+                "speaking": bool(speaking),
+            }
+        )
+
+    def on_polishing(self, utterance_id: int) -> None:
+        if self._session_id is None:
+            return
+        self._emit(
+            {
+                "protocol": 1,
+                "type": "polishing",
+                "session_id": self._session_id,
+                "utterance_id": utterance_id,
+            }
+        )
+
+    def on_calibration_started(self, duration_seconds: float) -> None:
+        self._emit(
+            {
+                "protocol": 1,
+                "type": "calibration_started",
+                "duration_seconds": round(float(duration_seconds), 2),
+            }
+        )
+
+    def on_calibration_done(self, noise_floor: float, threshold: float) -> None:
+        self._emit(
+            {
+                "protocol": 1,
+                "type": "calibration_done",
+                "noise_floor": round(float(noise_floor), 5),
+                "threshold": round(float(threshold), 5),
+            }
+        )
+
+    def on_calibration_failed(self, message: str) -> None:
+        self._emit(
+            {
+                "protocol": 1,
+                "type": "calibration_failed",
+                "message": message,
+            }
+        )
+
     def status_payload(self) -> dict:
         return {
             "protocol": 1,
@@ -189,6 +242,8 @@ class SessionController(EventCallback):
             "warmed_up": self._engine.warmed_up,
             "recording_active": self._engine.recording_active,
             "language": self._config.language,
+            "noise_floor": round(float(getattr(self._engine, "noise_floor", 0.0)), 5),
+            "vad_threshold": round(float(getattr(self._engine, "active_threshold", 0.0)), 5),
         }
 
     def _normalize_session_context(self, session_context: str | None) -> str:

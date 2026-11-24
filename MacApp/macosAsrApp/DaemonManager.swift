@@ -12,6 +12,17 @@ enum DaemonState: Equatable {
     case error(String)  // 启动/连接失败
 }
 
+struct DaemonLoadingStatus: Equatable {
+    let stage: String
+    let downloadProgress: Double?
+}
+
+enum NoiseCalibrationEvent: Equatable {
+    case started(durationSeconds: Double)
+    case done(noiseFloor: Double, threshold: Double)
+    case failed(String)
+}
+
 /// 启动并管理 asr_daemon 生命周期。App 启动即 warmUp，菜单栏据此显示状态。
 final class DaemonManager {
     static let shared = DaemonManager()
@@ -33,6 +44,21 @@ final class DaemonManager {
     var cancelInjection: (() -> Void)?
     var onSessionFailure: ((String) -> Void)?
     var eventHandler: ((DaemonEvent) -> Void)?
+    var onLoadingStatusChange: ((DaemonLoadingStatus?) -> Void)?
+    var onAudioLevel: ((Double, Bool) -> Void)?
+    var onPolishing: (() -> Void)?
+    var onUtteranceSettled: (() -> Void)?
+    var onNoiseCalibrationEvent: ((NoiseCalibrationEvent) -> Void)?
+
+    private(set) var loadingStatus: DaemonLoadingStatus? {
+        didSet {
+            if oldValue != loadingStatus {
+                onLoadingStatusChange?(loadingStatus)
+            }
+        }
+    }
+
+    private(set) var isRecalibratingNoise = false
 
     private lazy var sessionLifecycle: SessionLifecycle = {
         let lifecycle = SessionLifecycle(
@@ -116,6 +142,11 @@ final class DaemonManager {
     /// Commands express intent. Only daemon acknowledgements change confirmed session state.
     func startSession(sessionContext: String? = nil) {
         precondition(Thread.isMainThread)
+        if isRecalibratingNoise {
+            pendingSessionContext = nil
+            onSessionFailure?("正在校准环境噪音，请等待 3 秒校准完成。")
+            return
+        }
         switch state {
         case .ready, .starting, .listening, .stopping:
             pendingSessionContext = sessionContext
@@ -138,6 +169,24 @@ final class DaemonManager {
     func discardCurrentUtterance(sessionID: String, before timestamp: TimeInterval) {
         guard clientConnected else { return }
         client.send(cmd: "discard_utterance", extra: ["session_id": sessionID, "before": timestamp])
+    }
+
+    /// 空闲状态下触发一次 3 秒环境噪音重校准（无需重启 daemon）。
+    func recalibrateNoise() {
+        precondition(Thread.isMainThread)
+        guard state == .ready, !isRecalibratingNoise, clientConnected else { return }
+        isRecalibratingNoise = true
+        onNoiseCalibrationEvent?(.started(durationSeconds: 3.0))
+        client.send(cmd: "recalibrate_noise") { [weak self] result in
+            Self.onMain {
+                guard let self else { return }
+                if case let .failure(error) = result {
+                    self.isRecalibratingNoise = false
+                    self.onNoiseCalibrationEvent?(.failed(error.localizedDescription))
+                }
+            }
+        }
+        AppLogger.log("recalibrate_noise requested")
     }
 
     /// 把设置页的断句等待 / live 刷新 / 自定义热词 / 口语顺稿开关推到已运行的 daemon（不重启、不换模型）。
@@ -211,10 +260,38 @@ final class DaemonManager {
             }
         case "session_stopped":
             if let sessionID = event.sessionID { sessionLifecycle.sessionStopped(sessionID) }
+        case "audio_level":
+            if let level = event.audioLevel {
+                onAudioLevel?(level, event.speaking)
+            }
+        case "polishing":
+            onPolishing?()
+        case "final", "filtered":
+            onUtteranceSettled?()
+        case "calibration_started":
+            isRecalibratingNoise = true
+            onNoiseCalibrationEvent?(.started(durationSeconds: event.durationSeconds ?? 3.0))
+        case "calibration_done":
+            isRecalibratingNoise = false
+            let floor = event.noiseFloor ?? 0
+            let threshold = event.vadThreshold ?? 0
+            AppLogger.log("noise_recalibrated noise_floor=\(String(format: "%.5f", floor)) threshold=\(String(format: "%.5f", threshold))")
+            onNoiseCalibrationEvent?(.done(noiseFloor: floor, threshold: threshold))
+        case "calibration_failed":
+            isRecalibratingNoise = false
+            let msg = event.message ?? "noise calibration failed"
+            AppLogger.log("noise_recalibrate_failed \(msg)", level: "WARN")
+            onNoiseCalibrationEvent?(.failed(msg))
         case "error":
             let message = event.message ?? "ASR daemon error"
             if event.code == "mic_open_failed" {
                 sessionLifecycle.microphoneOpenFailed(message)
+            } else if event.code == "session_active" || event.code == "not_ready" {
+                if isRecalibratingNoise {
+                    isRecalibratingNoise = false
+                    onNoiseCalibrationEvent?(.failed(message))
+                }
+                AppLogger.log("daemon_recoverable_error code=\(event.code ?? "") msg=\(message)", level: "WARN")
             } else {
                 markDaemonFailed(message)
             }
@@ -279,6 +356,8 @@ final class DaemonManager {
             if case .error = self.state { return }
             self.warmUpEpoch &+= 1
             self.warming = false
+            self.loadingStatus = nil
+            self.isRecalibratingNoise = false
             self.clientConnected = false
             self.client.disconnect()
             if let proc = self.daemonProcess, proc.isRunning {
@@ -417,11 +496,21 @@ final class DaemonManager {
                 switch result {
                 case let .success(event):
                     if event.modelLoaded == true, event.calibrated == true {
+                        self.loadingStatus = nil
                         self.pushRuntimeDictationSettings()
                         completion(.success(()))
                     } else {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                            self.connectAndPing(deadline: deadline, epoch: epoch, completion: completion)
+                        let stage = event.stage ?? "loading"
+                        self.loadingStatus = DaemonLoadingStatus(
+                            stage: stage,
+                            downloadProgress: event.downloadProgress
+                        )
+                        // First-run model download on slower networks should not hit the 120s cold-start cap.
+                        let nextDeadline = stage == "downloading"
+                            ? max(deadline, Date().addingTimeInterval(120))
+                            : deadline
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            self.connectAndPing(deadline: nextDeadline, epoch: epoch, completion: completion)
                         }
                     }
                 case .failure:
