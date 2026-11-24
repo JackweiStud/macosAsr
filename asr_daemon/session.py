@@ -27,13 +27,23 @@ class SessionController(EventCallback):
         self._emit = emit
         self._session_id: str | None = None
         self._base_system_prompt = config.system_prompt
+        self._session_context = ""
         self._previous_final_text = ""
 
     @property
     def session_id(self) -> str | None:
         return self._session_id
 
-    def start_session(self, language: str | None = None) -> str:
+    def update_base_context(self, base_prompt: str) -> None:
+        self._base_system_prompt = base_prompt.strip()
+        self._apply_dynamic_system_prompt()
+        logger.info("base_context_updated chars=%s", len(self._base_system_prompt))
+
+    def start_session(
+        self,
+        language: str | None = None,
+        session_context: str | None = None,
+    ) -> str:
         if self._session_id is not None:
             logger.warning("session already active: %s", self._session_id)
             # Reconnecting clients still need an acknowledgement. They must discard
@@ -49,10 +59,13 @@ class SessionController(EventCallback):
         if language:
             self._config.language = language
 
-        self._reset_previous_final_context()
+        self._previous_final_text = ""
+        self._session_context = self._normalize_session_context(session_context)
+        self._apply_dynamic_system_prompt()
         try:
             self._engine.start_recording()
         except Exception:
+            self._reset_previous_final_context()
             logger.exception("start_recording failed")
             raise
         self._session_id = f"s-{uuid.uuid4().hex[:8]}"
@@ -64,7 +77,13 @@ class SessionController(EventCallback):
             }
         )
         self._engine.set_listening(True)
-        logger.info("session_started id=%s lang=%s", self._session_id, self._config.language)
+        logger.info(
+            "session_started id=%s lang=%s base_ctx_chars=%s session_ctx_chars=%s",
+            self._session_id,
+            self._config.language,
+            len(self._base_system_prompt),
+            len(self._session_context),
+        )
         return self._session_id
 
     def stop_session(self) -> None:
@@ -172,8 +191,15 @@ class SessionController(EventCallback):
             "language": self._config.language,
         }
 
+    def _normalize_session_context(self, session_context: str | None) -> str:
+        if not isinstance(session_context, str):
+            return ""
+        normalized = " ".join(session_context.strip().split())
+        return normalized[:240]
+
     def _reset_previous_final_context(self) -> None:
         self._previous_final_text = ""
+        self._session_context = ""
         self._apply_dynamic_system_prompt()
 
     def _update_previous_final_context(self, text: str) -> None:
@@ -187,12 +213,11 @@ class SessionController(EventCallback):
         logger.debug("previous final context chars=%s", len(self._previous_final_text))
 
     def _apply_dynamic_system_prompt(self) -> None:
-        if not self._config.previous_final_context_enabled or not self._previous_final_text:
-            self._config.system_prompt = self._base_system_prompt
-            return
-
-        parts = []
+        parts: list[str] = []
         if self._base_system_prompt:
             parts.append(self._base_system_prompt)
-        parts.append(f"前文：{self._previous_final_text}")
+        if self._session_context:
+            parts.append(self._session_context)
+        if self._config.previous_final_context_enabled and self._previous_final_text:
+            parts.append(f"前文：{self._previous_final_text}")
         self._config.system_prompt = "\n".join(parts)

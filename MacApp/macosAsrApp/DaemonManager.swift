@@ -27,6 +27,7 @@ final class DaemonManager {
     private var lastRestartFailureAt = Date.distantPast
     private var pendingWarmUpAfterBackoff = false
     private var warmUpEpoch: UInt64 = 0
+    private var pendingSessionContext: String?
     var onInjectionSessionStarted: ((String, TimeInterval?) -> Void)?
     var finishInjectionSession: ((String, @escaping () -> Void) -> Void)?
     var cancelInjection: (() -> Void)?
@@ -37,7 +38,14 @@ final class DaemonManager {
         let lifecycle = SessionLifecycle(
             sendCommand: { [weak self] command, completion in
                 guard let self else { return }
-                let extra: [String: Any] = command == .start ? ["language": ConfigManager.shared.language] : [:]
+                var extra: [String: Any] = [:]
+                if command == .start {
+                    extra["language"] = ConfigManager.shared.language
+                    if let ctx = self.pendingSessionContext, !ctx.isEmpty {
+                        extra["session_context"] = ctx
+                    }
+                    self.pendingSessionContext = nil
+                }
                 self.client.send(cmd: command.rawValue, extra: extra, completion: completion)
             },
             beginInjection: { [weak self] sessionID, resumedAt in self?.onInjectionSessionStarted?(sessionID, resumedAt) },
@@ -106,18 +114,24 @@ final class DaemonManager {
     }
 
     /// Commands express intent. Only daemon acknowledgements change confirmed session state.
-    func startSession() {
+    func startSession(sessionContext: String? = nil) {
         precondition(Thread.isMainThread)
         switch state {
         case .ready, .starting, .listening, .stopping:
+            pendingSessionContext = sessionContext
+            if let sessionContext, !sessionContext.isEmpty {
+                AppLogger.log("session_context_attached chars=\(sessionContext.count)")
+            }
             sessionLifecycle.setDesiredListening(true)
         case .idle, .loading, .error:
+            pendingSessionContext = nil
             onSessionFailure?("ASR daemon 尚未就绪，请等待模型加载或重启服务。")
         }
     }
 
     func stopSession() {
         precondition(Thread.isMainThread)
+        pendingSessionContext = nil
         sessionLifecycle.setDesiredListening(false)
     }
 
@@ -126,18 +140,20 @@ final class DaemonManager {
         client.send(cmd: "discard_utterance", extra: ["session_id": sessionID, "before": timestamp])
     }
 
-    /// 把设置页的断句等待 / live 刷新推到已运行的 daemon（不重启、不换模型）。
+    /// 把设置页的断句等待 / live 刷新 / 自定义热词推到已运行的 daemon（不重启、不换模型）。
     func pushRuntimeDictationSettings() {
         guard clientConnected else { return }
+        let hotwords = ConfigManager.shared.customHotwords
         client.send(
             cmd: "config_update",
             extra: [
                 "partial_interval_seconds": ConfigManager.shared.partialIntervalSeconds,
                 "vad_end_silence_seconds": ConfigManager.shared.vadEndSilenceSeconds,
+                "custom_hotwords": hotwords,
             ]
         )
         AppLogger.log(
-            "config_update pushed partial=\(ConfigManager.shared.partialIntervalSeconds) vad_end=\(ConfigManager.shared.vadEndSilenceSeconds)"
+            "config_update pushed partial=\(ConfigManager.shared.partialIntervalSeconds) vad_end=\(ConfigManager.shared.vadEndSilenceSeconds) hotwords_chars=\(hotwords.count)"
         )
     }
 
@@ -320,6 +336,9 @@ final class DaemonManager {
         env["MACOSASR_ROOT"] = root.path
         env["MACOSASR_PARTIAL_INTERVAL"] = String(format: "%.2f", ConfigManager.shared.partialIntervalSeconds)
         env["MACOSASR_VAD_END_SILENCE"] = String(format: "%.2f", ConfigManager.shared.vadEndSilenceSeconds)
+        if !ConfigManager.shared.customHotwords.isEmpty && env["MACOSASR_CONTEXT"] == nil {
+            env["MACOSASR_CONTEXT"] = ConfigManager.shared.customHotwords
+        }
         task.environment = env
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice

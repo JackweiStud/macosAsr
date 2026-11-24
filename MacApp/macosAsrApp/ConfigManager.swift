@@ -20,6 +20,8 @@ final class ConfigManager {
     var asrModel: String { config.asrModel }
     var partialIntervalSeconds: Double { config.partialIntervalSeconds }
     var vadEndSilenceSeconds: Double { config.vadEndSilenceSeconds }
+    var customHotwords: String { config.customHotwords }
+    var screenContextEnabled: Bool { config.screenContextEnabled }
 
     func saveLanguage(_ language: String) throws {
         guard RecognitionLanguage(asrValue: language) != nil else {
@@ -51,6 +53,19 @@ final class ConfigManager {
         AppLogger.log(
             "config_saved asr_model=\(asrModel) partial_interval=\(partialIntervalSeconds) vad_end_silence=\(vadEndSilenceSeconds) path=\(configURL.path)"
         )
+    }
+
+    func saveCustomHotwords(_ hotwords: String) throws {
+        let trimmed = hotwords.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.customHotwords = trimmed
+        try save()
+        AppLogger.log("config_saved custom_hotwords_chars=\(trimmed.count) path=\(configURL.path)")
+    }
+
+    func saveScreenContextEnabled(_ enabled: Bool) throws {
+        config.screenContextEnabled = enabled
+        try save()
+        AppLogger.log("config_saved screen_context_enabled=\(enabled) path=\(configURL.path)")
     }
 
     // MARK: - Private

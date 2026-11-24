@@ -8,6 +8,7 @@ cd "$ROOT"
 SWIFT_SOURCES=(
   MacApp/macosAsrApp/AppConfig.swift
   MacApp/macosAsrApp/ConfigManager.swift
+  MacApp/macosAsrApp/ScreenContextReader.swift
   MacApp/macosAsrApp/SettingsWindowController.swift
   MacApp/macosAsrApp/AppLogger.swift
   MacApp/macosAsrApp/ProjectPaths.swift
@@ -27,6 +28,7 @@ swiftc -Onone \
   -target arm64-apple-macosx15.0 \
   -framework Cocoa \
   -framework ApplicationServices \
+  -framework Carbon \
   "${SWIFT_SOURCES[@]}" \
   -o /tmp/macosAsrApp_build_check
 echo "PASS compile"

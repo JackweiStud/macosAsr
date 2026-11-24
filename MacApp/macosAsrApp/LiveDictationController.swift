@@ -33,9 +33,9 @@ final class LiveDictationController {
 
     var isActive: Bool { DaemonManager.shared.state == .listening }
 
-    func start(onFailure: @escaping (String) -> Void) {
+    func start(sessionContext: String? = nil, onFailure: @escaping (String) -> Void) {
         onStartFailure = onFailure
-        DaemonManager.shared.startSession()
+        DaemonManager.shared.startSession(sessionContext: sessionContext)
     }
 
     func stop() {

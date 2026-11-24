@@ -8,6 +8,7 @@ import signal
 import sys
 from pathlib import Path
 
+from asr.asr_core import format_hotwords_prompt
 from asr.config import AsrConfig
 from asr.run_utils import DEFAULT_DAEMON_LOG, PROJECT_ROOT, setup_tee
 from asr_daemon.server import DaemonServer
@@ -20,7 +21,7 @@ def _env_flag_enabled(value: str) -> bool:
 def apply_env_overrides(config: AsrConfig, environ: dict[str, str]) -> None:
     context_env = environ.get("MACOSASR_CONTEXT")
     if context_env is not None:
-        config.system_prompt = context_env.strip()
+        config.system_prompt = format_hotwords_prompt(context_env)
 
     previous_final_context_env = environ.get("MACOSASR_PREVIOUS_FINAL_CONTEXT")
     if previous_final_context_env is not None:

@@ -86,10 +86,53 @@ def current_rss_mib() -> Optional[float]:
 
 
 CONTEXT_PREFIX_MARKER = "前文："
+HOTWORDS_PREFIX_MARKER = "常用术语："
 
 
 def normalize_text(text: str) -> str:
     return " ".join(text.strip().split())
+
+
+def format_hotwords_prompt(raw_hotwords: str, *, max_terms: int = 80, max_chars: int = 600) -> str:
+    """Normalize user hotwords (comma/newline-separated) into a Qwen3-ASR context prompt."""
+    stripped = raw_hotwords.strip()
+    if not stripped:
+        return ""
+    if stripped.startswith((HOTWORDS_PREFIX_MARKER, "场景：")):
+        return stripped[:max_chars].strip()
+
+    separators = "\n\r,，、;；"
+    terms: list[str] = []
+    seen: set[str] = set()
+    buf: list[str] = []
+    for ch in stripped:
+        if ch in separators:
+            token = normalize_text("".join(buf))
+            buf.clear()
+            if token and token.lower() not in seen:
+                seen.add(token.lower())
+                terms.append(token)
+        else:
+            buf.append(ch)
+    if buf:
+        token = normalize_text("".join(buf))
+        if token and token.lower() not in seen:
+            seen.add(token.lower())
+            terms.append(token)
+
+    if not terms:
+        return ""
+    selected: list[str] = []
+    total_len = len(HOTWORDS_PREFIX_MARKER)
+    for term in terms[:max_terms]:
+        extra = len(term) + (2 if selected else 0)
+        if total_len + extra > max_chars:
+            break
+        selected.append(term)
+        total_len += extra
+    if not selected:
+        return ""
+    return f"{HOTWORDS_PREFIX_MARKER}{', '.join(selected)}"
 
 
 def _join_context_fragments(left: str, right: str) -> str:

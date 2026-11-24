@@ -1,17 +1,24 @@
 import Cocoa
 
-/// 设置窗口：识别语言与开发者向高级听写参数。
-final class SettingsWindowController: NSWindowController {
+/// 设置窗口：识别语言、高级听写参数、自定义热词词典与可选屏幕上下文。
+final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTextViewDelegate {
     static let shared = SettingsWindowController()
 
     private let languagePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let asrModelPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let vadEndSilencePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let partialIntervalPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let hotwordsTextView = NSTextView(frame: .zero)
+    private let hotwordsStatusLabel = NSTextField(labelWithString: "")
+    private let screenContextCheckbox = NSButton(
+        checkboxWithTitle: "Read active window & cursor context (optional)",
+        target: nil,
+        action: nil
+    )
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 330),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -19,6 +26,7 @@ final class SettingsWindowController: NSWindowController {
         window.title = "macosAsr Settings"
         window.center()
         super.init(window: window)
+        window.delegate = self
         setupContent()
     }
 
@@ -31,6 +39,14 @@ final class SettingsWindowController: NSWindowController {
         reloadFromConfig()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        saveHotwordsIfChanged(showStatus: false)
+    }
+
+    func textDidEndEditing(_ notification: Notification) {
+        saveHotwordsIfChanged(showStatus: true)
     }
 
     // MARK: - UI
@@ -91,19 +107,66 @@ final class SettingsWindowController: NSWindowController {
         hint.textColor = .secondaryLabelColor
         hint.translatesAutoresizingMaskIntoConstraints = false
 
-        contentView.addSubview(label)
-        contentView.addSubview(languagePopUp)
-        contentView.addSubview(advancedTitle)
-        contentView.addSubview(modelLabel)
-        contentView.addSubview(asrModelPopUp)
-        contentView.addSubview(vadLabel)
-        contentView.addSubview(vadEndSilencePopUp)
-        contentView.addSubview(partialLabel)
-        contentView.addSubview(partialIntervalPopUp)
-        contentView.addSubview(hint)
+        let contextTitle = NSTextField(labelWithString: "Accuracy & context")
+        contextTitle.font = NSFont.boldSystemFont(ofSize: 13)
+        contextTitle.translatesAutoresizingMaskIntoConstraints = false
+
+        let hotwordsLabel = NSTextField(labelWithString: "Custom hotwords / terms (comma or newline separated):")
+        hotwordsLabel.font = NSFont.systemFont(ofSize: 12)
+        hotwordsLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .bezelBorder
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        hotwordsTextView.isEditable = true
+        hotwordsTextView.isSelectable = true
+        hotwordsTextView.isRichText = false
+        hotwordsTextView.allowsUndo = true
+        hotwordsTextView.font = NSFont.systemFont(ofSize: 12)
+        hotwordsTextView.isAutomaticQuoteSubstitutionEnabled = false
+        hotwordsTextView.isAutomaticDashSubstitutionEnabled = false
+        hotwordsTextView.isAutomaticTextReplacementEnabled = false
+        hotwordsTextView.textContainerInset = NSSize(width: 4, height: 6)
+        hotwordsTextView.autoresizingMask = [.width]
+        hotwordsTextView.delegate = self
+        scrollView.documentView = hotwordsTextView
+
+        let applyHotwordsButton = NSButton(title: "Save & Apply", target: self, action: #selector(applyHotwordsClicked))
+        applyHotwordsButton.bezelStyle = .rounded
+        applyHotwordsButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let resetHotwordsButton = NSButton(title: "Reset Defaults", target: self, action: #selector(resetHotwordsClicked))
+        resetHotwordsButton.bezelStyle = .rounded
+        resetHotwordsButton.translatesAutoresizingMaskIntoConstraints = false
+
+        hotwordsStatusLabel.font = NSFont.systemFont(ofSize: 11)
+        hotwordsStatusLabel.textColor = .secondaryLabelColor
+        hotwordsStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        screenContextCheckbox.target = self
+        screenContextCheckbox.action = #selector(screenContextToggled(_:))
+        screenContextCheckbox.translatesAutoresizingMaskIntoConstraints = false
+
+        let screenContextHint = NSTextField(
+            wrappingLabelWithString: "Off by default. When enabled, reads active window title and up to 120 chars before the cursor at ⌥Z start (local only, never logged, automatically skips password fields)."
+        )
+        screenContextHint.font = NSFont.systemFont(ofSize: 11)
+        screenContextHint.textColor = .secondaryLabelColor
+        screenContextHint.translatesAutoresizingMaskIntoConstraints = false
+
+        for view in [
+            label, languagePopUp, advancedTitle, modelLabel, asrModelPopUp,
+            vadLabel, vadEndSilencePopUp, partialLabel, partialIntervalPopUp, hint,
+            contextTitle, hotwordsLabel, scrollView, applyHotwordsButton,
+            resetHotwordsButton, hotwordsStatusLabel, screenContextCheckbox, screenContextHint,
+        ] {
+            contentView.addSubview(view)
+        }
 
         NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 24),
+            label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
             label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
             label.widthAnchor.constraint(equalToConstant: 145),
 
@@ -111,10 +174,10 @@ final class SettingsWindowController: NSWindowController {
             languagePopUp.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 16),
             languagePopUp.widthAnchor.constraint(equalToConstant: 200),
 
-            advancedTitle.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 28),
+            advancedTitle.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 22),
             advancedTitle.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
 
-            modelLabel.topAnchor.constraint(equalTo: advancedTitle.bottomAnchor, constant: 18),
+            modelLabel.topAnchor.constraint(equalTo: advancedTitle.bottomAnchor, constant: 14),
             modelLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
             modelLabel.widthAnchor.constraint(equalTo: label.widthAnchor),
 
@@ -122,7 +185,7 @@ final class SettingsWindowController: NSWindowController {
             asrModelPopUp.leadingAnchor.constraint(equalTo: modelLabel.trailingAnchor, constant: 16),
             asrModelPopUp.widthAnchor.constraint(equalToConstant: 260),
 
-            vadLabel.topAnchor.constraint(equalTo: modelLabel.bottomAnchor, constant: 18),
+            vadLabel.topAnchor.constraint(equalTo: modelLabel.bottomAnchor, constant: 14),
             vadLabel.leadingAnchor.constraint(equalTo: modelLabel.leadingAnchor),
             vadLabel.widthAnchor.constraint(equalTo: label.widthAnchor),
 
@@ -130,7 +193,7 @@ final class SettingsWindowController: NSWindowController {
             vadEndSilencePopUp.leadingAnchor.constraint(equalTo: asrModelPopUp.leadingAnchor),
             vadEndSilencePopUp.widthAnchor.constraint(equalTo: asrModelPopUp.widthAnchor),
 
-            partialLabel.topAnchor.constraint(equalTo: vadLabel.bottomAnchor, constant: 18),
+            partialLabel.topAnchor.constraint(equalTo: vadLabel.bottomAnchor, constant: 14),
             partialLabel.leadingAnchor.constraint(equalTo: vadLabel.leadingAnchor),
             partialLabel.widthAnchor.constraint(equalTo: label.widthAnchor),
 
@@ -138,9 +201,38 @@ final class SettingsWindowController: NSWindowController {
             partialIntervalPopUp.leadingAnchor.constraint(equalTo: vadEndSilencePopUp.leadingAnchor),
             partialIntervalPopUp.widthAnchor.constraint(equalTo: asrModelPopUp.widthAnchor),
 
-            hint.topAnchor.constraint(equalTo: partialLabel.bottomAnchor, constant: 22),
+            hint.topAnchor.constraint(equalTo: partialLabel.bottomAnchor, constant: 14),
             hint.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
             hint.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
+
+            contextTitle.topAnchor.constraint(equalTo: hint.bottomAnchor, constant: 20),
+            contextTitle.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+
+            hotwordsLabel.topAnchor.constraint(equalTo: contextTitle.bottomAnchor, constant: 10),
+            hotwordsLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+            hotwordsLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
+
+            scrollView.topAnchor.constraint(equalTo: hotwordsLabel.bottomAnchor, constant: 6),
+            scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+            scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
+            scrollView.heightAnchor.constraint(equalToConstant: 82),
+
+            applyHotwordsButton.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 8),
+            applyHotwordsButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+
+            resetHotwordsButton.centerYAnchor.constraint(equalTo: applyHotwordsButton.centerYAnchor),
+            resetHotwordsButton.leadingAnchor.constraint(equalTo: applyHotwordsButton.trailingAnchor, constant: 8),
+
+            hotwordsStatusLabel.centerYAnchor.constraint(equalTo: applyHotwordsButton.centerYAnchor),
+            hotwordsStatusLabel.leadingAnchor.constraint(equalTo: resetHotwordsButton.trailingAnchor, constant: 12),
+            hotwordsStatusLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -24),
+
+            screenContextCheckbox.topAnchor.constraint(equalTo: applyHotwordsButton.bottomAnchor, constant: 16),
+            screenContextCheckbox.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+
+            screenContextHint.topAnchor.constraint(equalTo: screenContextCheckbox.bottomAnchor, constant: 4),
+            screenContextHint.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 42),
+            screenContextHint.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
         ])
     }
 
@@ -161,6 +253,9 @@ final class SettingsWindowController: NSWindowController {
         selectPopup(asrModelPopUp, value: ConfigManager.shared.asrModel)
         selectPopup(vadEndSilencePopUp, value: ConfigManager.shared.vadEndSilenceSeconds)
         selectPopup(partialIntervalPopUp, value: ConfigManager.shared.partialIntervalSeconds)
+        hotwordsTextView.string = ConfigManager.shared.customHotwords
+        hotwordsStatusLabel.stringValue = "Applies immediately without restart"
+        screenContextCheckbox.state = ConfigManager.shared.screenContextEnabled ? .on : .off
     }
 
     @objc private func languageChanged(_ sender: NSPopUpButton) {
@@ -189,6 +284,46 @@ final class SettingsWindowController: NSWindowController {
         } catch {
             AppLogger.log("config_save_failed \(error.localizedDescription)", level: "ERROR")
             reloadFromConfig()
+        }
+    }
+
+    @objc private func applyHotwordsClicked() {
+        saveHotwords(hotwordsTextView.string, showStatus: true)
+    }
+
+    @objc private func resetHotwordsClicked() {
+        hotwordsTextView.string = AppConfig.defaultCustomHotwords
+        saveHotwords(AppConfig.defaultCustomHotwords, showStatus: true)
+    }
+
+    @objc private func screenContextToggled(_ sender: NSButton) {
+        let enabled = sender.state == .on
+        do {
+            try ConfigManager.shared.saveScreenContextEnabled(enabled)
+        } catch {
+            AppLogger.log("config_save_failed \(error.localizedDescription)", level: "ERROR")
+            reloadFromConfig()
+        }
+    }
+
+    private func saveHotwordsIfChanged(showStatus: Bool) {
+        let trimmed = hotwordsTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != ConfigManager.shared.customHotwords else { return }
+        saveHotwords(trimmed, showStatus: showStatus)
+    }
+
+    private func saveHotwords(_ raw: String, showStatus: Bool) {
+        do {
+            try ConfigManager.shared.saveCustomHotwords(raw)
+            DaemonManager.shared.pushRuntimeDictationSettings()
+            if showStatus {
+                hotwordsStatusLabel.stringValue = "Saved & applied immediately"
+            }
+        } catch {
+            AppLogger.log("config_save_failed \(error.localizedDescription)", level: "ERROR")
+            if showStatus {
+                hotwordsStatusLabel.stringValue = "Save failed"
+            }
         }
     }
 

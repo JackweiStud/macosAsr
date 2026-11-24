@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from typing import Callable
 
-from asr.asr_core import require_runtime_dependencies
+from asr.asr_core import format_hotwords_prompt, require_runtime_dependencies
 from asr.config import AsrConfig
 from asr.partial_engine import EventCallback, PartialEngine
 from asr_daemon.session import SessionController
@@ -202,7 +202,7 @@ class DaemonServer:
             logger.warning("send failed: %s", exc)
 
     def _apply_config_update(self, msg: dict) -> None:
-        """热更新断句等待与 live 刷新；立即写回内存中的 AsrConfig。"""
+        """热更新断句等待、live 刷新与自定义热词；立即写回内存中的 AsrConfig。"""
         if "partial_interval_seconds" in msg:
             try:
                 self._config.partial_interval_seconds = max(0.05, float(msg["partial_interval_seconds"]))
@@ -213,10 +213,21 @@ class DaemonServer:
                 self._config.vad_end_silence_seconds = max(0.05, float(msg["vad_end_silence_seconds"]))
             except (TypeError, ValueError):
                 logger.warning("config_update ignored invalid vad_end_silence_seconds=%r", msg.get("vad_end_silence_seconds"))
+        if "custom_hotwords" in msg:
+            raw_hotwords = msg.get("custom_hotwords")
+            if isinstance(raw_hotwords, str):
+                formatted = format_hotwords_prompt(raw_hotwords)
+                if self._session is not None:
+                    self._session.update_base_context(formatted)
+                else:
+                    self._config.system_prompt = formatted
+            else:
+                logger.warning("config_update ignored non-string custom_hotwords")
         logger.info(
-            "config_updated partial_interval=%.2fs vad_end_silence=%.2fs",
+            "config_updated partial_interval=%.2fs vad_end_silence=%.2fs context_chars=%s",
             self._config.partial_interval_seconds,
             self._config.vad_end_silence_seconds,
+            len(self._config.system_prompt),
         )
 
     def _dispatch(self, msg: dict) -> list[dict]:
@@ -255,6 +266,7 @@ class DaemonServer:
                     "type": "config_updated",
                     "partial_interval_seconds": self._config.partial_interval_seconds,
                     "vad_end_silence_seconds": self._config.vad_end_silence_seconds,
+                    "context_chars": len(self._config.system_prompt),
                 }
             ]
 
@@ -263,7 +275,14 @@ class DaemonServer:
 
         if cmd == "session_start":
             try:
-                self._session.start_session(language=msg.get("language"))
+                session_context = msg.get("session_context")
+                if isinstance(session_context, str) and session_context.strip():
+                    self._session.start_session(
+                        language=msg.get("language"),
+                        session_context=session_context,
+                    )
+                else:
+                    self._session.start_session(language=msg.get("language"))
             except Exception as exc:
                 logger.exception("session_start failed")
                 return [

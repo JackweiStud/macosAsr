@@ -203,7 +203,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             liveDictation.stop()
         case .ready, .starting, .stopping:
             preDictationApp = NSWorkspace.shared.frontmostApplication
-            liveDictation.start { [weak self] errorMsg in
+            let sessionContext = ConfigManager.shared.screenContextEnabled
+                ? ScreenContextReader.capture(from: preDictationApp)
+                : nil
+            liveDictation.start(sessionContext: sessionContext) { [weak self] errorMsg in
                 self?.showError("Could Not Start Dictation", text: errorMsg)
             }
             // 把焦点还给目标 App，让 CGEvent 注入对（macOS 14+ API）

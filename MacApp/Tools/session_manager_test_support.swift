@@ -12,6 +12,8 @@ final class ConfigManager {
     let asrModel = "selftest-no-model"
     let partialIntervalSeconds = 0.8
     let vadEndSilenceSeconds = 1.5
+    let customHotwords = ""
+    let screenContextEnabled = false
 }
 
 enum ProjectPaths {

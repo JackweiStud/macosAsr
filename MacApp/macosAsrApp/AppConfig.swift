@@ -6,18 +6,24 @@ struct AppConfig: Codable, Equatable {
     var asrModel: String
     var partialIntervalSeconds: Double
     var vadEndSilenceSeconds: Double
+    var customHotwords: String
+    var screenContextEnabled: Bool
 
     static let defaultLanguage = "Chinese"
     static let defaultAsrModel = AsrModelPreset.qwen06B.rawValue
     static let defaultPartialIntervalSeconds = 0.5
     static let defaultVadEndSilenceSeconds = 1.5
+    static let defaultCustomHotwords = "macosAsr, Qwen3-ASR, MLX, FastAPI, PostgreSQL, Redis, WebSocket, REST API, TypeScript, Python, Swift, Git, GitHub, Git Commit, Pull Request, Docker, Kubernetes, Cursor, Codex, PartialEngine, VAD"
+    static let defaultScreenContextEnabled = false
 
     static var defaults: AppConfig {
         AppConfig(
             language: defaultLanguage,
             asrModel: defaultAsrModel,
             partialIntervalSeconds: defaultPartialIntervalSeconds,
-            vadEndSilenceSeconds: defaultVadEndSilenceSeconds
+            vadEndSilenceSeconds: defaultVadEndSilenceSeconds,
+            customHotwords: defaultCustomHotwords,
+            screenContextEnabled: defaultScreenContextEnabled
         )
     }
 
@@ -25,12 +31,16 @@ struct AppConfig: Codable, Equatable {
         language: String,
         asrModel: String = defaultAsrModel,
         partialIntervalSeconds: Double = defaultPartialIntervalSeconds,
-        vadEndSilenceSeconds: Double = defaultVadEndSilenceSeconds
+        vadEndSilenceSeconds: Double = defaultVadEndSilenceSeconds,
+        customHotwords: String = defaultCustomHotwords,
+        screenContextEnabled: Bool = defaultScreenContextEnabled
     ) {
         self.language = language
         self.asrModel = asrModel
         self.partialIntervalSeconds = partialIntervalSeconds
         self.vadEndSilenceSeconds = vadEndSilenceSeconds
+        self.customHotwords = customHotwords
+        self.screenContextEnabled = screenContextEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -38,6 +48,8 @@ struct AppConfig: Codable, Equatable {
         case asrModel
         case partialIntervalSeconds
         case vadEndSilenceSeconds
+        case customHotwords
+        case screenContextEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -48,6 +60,10 @@ struct AppConfig: Codable, Equatable {
             ?? Self.defaultPartialIntervalSeconds
         vadEndSilenceSeconds = try container.decodeIfPresent(Double.self, forKey: .vadEndSilenceSeconds)
             ?? Self.defaultVadEndSilenceSeconds
+        customHotwords = try container.decodeIfPresent(String.self, forKey: .customHotwords)
+            ?? Self.defaultCustomHotwords
+        screenContextEnabled = try container.decodeIfPresent(Bool.self, forKey: .screenContextEnabled)
+            ?? Self.defaultScreenContextEnabled
     }
 }
 

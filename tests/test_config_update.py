@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
+from asr.asr_core import format_hotwords_prompt
 from asr.config import AsrConfig
 from asr_daemon.server import DaemonServer
+from asr_daemon.session import SessionController
 
 
 class ConfigUpdateTests(unittest.TestCase):
@@ -91,6 +93,93 @@ class SessionStartMicErrorTests(unittest.TestCase):
         self.assertIn('event.code == "mic_open_failed"', source)
         self.assertIn("sessionLifecycle.microphoneOpenFailed(message)", source)
         self.assertIn("sessionLifecycle.daemonFailed(message)", source)
+
+
+class HotwordsAndScreenContextTests(unittest.TestCase):
+    def test_format_hotwords_prompt_deduplicates_and_normalizes(self) -> None:
+        formatted = format_hotwords_prompt("FastAPI, postgresql，PostgreSQL\nWebSocket；macosAsr")
+        self.assertEqual(formatted, "常用术语：FastAPI, postgresql, WebSocket, macosAsr")
+        self.assertEqual(format_hotwords_prompt("   , ,\n"), "")
+        self.assertEqual(format_hotwords_prompt("场景：开发"), "场景：开发")
+
+    def test_config_update_hot_updates_custom_hotwords_and_preserves_layers(self) -> None:
+        class _StubEngine:
+            calibrated = True
+            warmed_up = True
+            recording_active = False
+
+            def start_recording(self) -> None:
+                pass
+
+            def stop_recording(self) -> None:
+                pass
+
+            def set_listening(self, _listening: bool) -> None:
+                pass
+
+            def is_listening(self) -> bool:
+                return False
+
+            def flush_on_stop(self) -> None:
+                pass
+
+            def discard_utterance(self, _before: float) -> None:
+                pass
+
+        config = AsrConfig()
+        engine = _StubEngine()
+        session = SessionController(engine, config, lambda _e: None)  # type: ignore[arg-type]
+        server = DaemonServer(Path("/tmp/macosasr-hotwords-test.sock"), config, skip_model=True)
+        server._session = session
+
+        events = server._dispatch({
+            "protocol": 1,
+            "cmd": "config_update",
+            "custom_hotwords": "FastAPI, PostgreSQL, macosAsr",
+        })
+        self.assertEqual(events[0]["type"], "config_updated")
+        self.assertEqual(config.system_prompt, "常用术语：FastAPI, PostgreSQL, macosAsr")
+
+        # Start session with optional ephemeral screen context.
+        server._dispatch({
+            "protocol": 1,
+            "cmd": "session_start",
+            "language": "Chinese",
+            "session_context": "当前窗口：Cursor - partial_engine.py；光标前文：测试热词",
+        })
+        self.assertEqual(
+            config.system_prompt,
+            "常用术语：FastAPI, PostgreSQL, macosAsr\n当前窗口：Cursor - partial_engine.py；光标前文：测试热词",
+        )
+
+        # Previous final context layers after base hotwords + session context.
+        session.on_final(1, "先看第一句。", 100.0)
+        self.assertEqual(
+            config.system_prompt,
+            "常用术语：FastAPI, PostgreSQL, macosAsr\n当前窗口：Cursor - partial_engine.py；光标前文：测试热词\n前文：先看第一句。",
+        )
+
+        # Stopping clears ephemeral session_context and previous_final, keeping base hotwords.
+        session.stop_session()
+        self.assertEqual(config.system_prompt, "常用术语：FastAPI, PostgreSQL, macosAsr")
+
+        # Clearing hotwords empties system_prompt immediately.
+        server._dispatch({"protocol": 1, "cmd": "config_update", "custom_hotwords": ""})
+        self.assertEqual(config.system_prompt, "")
+
+    def test_swift_defaults_and_privacy_guardrails(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        app_config = (root / "MacApp/macosAsrApp/AppConfig.swift").read_text()
+        self.assertIn("static let defaultScreenContextEnabled = false", app_config)
+        self.assertIn("static let defaultCustomHotwords =", app_config)
+
+        reader = (root / "MacApp/macosAsrApp/ScreenContextReader.swift").read_text()
+        self.assertIn("IsSecureEventInputEnabled()", reader)
+        self.assertIn("kAXSecureTextFieldSubrole", reader)
+
+        settings = (root / "MacApp/macosAsrApp/SettingsWindowController.swift").read_text()
+        self.assertIn("screenContextCheckbox", settings)
+        self.assertIn("hotwordsTextView", settings)
 
 
 if __name__ == "__main__":

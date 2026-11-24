@@ -14,10 +14,12 @@ swiftc -Onone \
   -target arm64-apple-macosx15.0 \
   -framework Cocoa \
   -framework ApplicationServices \
+  -framework Carbon \
   -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$PLIST" \
   "$SRC/main.swift" \
   "$SRC/AppConfig.swift" \
   "$SRC/ConfigManager.swift" \
+  "$SRC/ScreenContextReader.swift" \
   "$SRC/SettingsWindowController.swift" \
   "$SRC/AppLogger.swift" \
   "$SRC/ProjectPaths.swift" \
