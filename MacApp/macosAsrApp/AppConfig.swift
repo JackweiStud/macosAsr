@@ -8,6 +8,7 @@ struct AppConfig: Codable, Equatable {
     var vadEndSilenceSeconds: Double
     var customHotwords: String
     var screenContextEnabled: Bool
+    var oralPolishEnabled: Bool
 
     static let defaultLanguage = "Chinese"
     static let defaultAsrModel = AsrModelPreset.qwen06B.rawValue
@@ -15,6 +16,7 @@ struct AppConfig: Codable, Equatable {
     static let defaultVadEndSilenceSeconds = 1.5
     static let defaultCustomHotwords = "macosAsr, Qwen3-ASR, MLX, FastAPI, PostgreSQL, Redis, WebSocket, REST API, TypeScript, Python, Swift, Git, GitHub, Git Commit, Pull Request, Docker, Kubernetes, Cursor, Codex, PartialEngine, VAD"
     static let defaultScreenContextEnabled = false
+    static let defaultOralPolishEnabled = false
 
     static var defaults: AppConfig {
         AppConfig(
@@ -23,7 +25,8 @@ struct AppConfig: Codable, Equatable {
             partialIntervalSeconds: defaultPartialIntervalSeconds,
             vadEndSilenceSeconds: defaultVadEndSilenceSeconds,
             customHotwords: defaultCustomHotwords,
-            screenContextEnabled: defaultScreenContextEnabled
+            screenContextEnabled: defaultScreenContextEnabled,
+            oralPolishEnabled: defaultOralPolishEnabled
         )
     }
 
@@ -33,7 +36,8 @@ struct AppConfig: Codable, Equatable {
         partialIntervalSeconds: Double = defaultPartialIntervalSeconds,
         vadEndSilenceSeconds: Double = defaultVadEndSilenceSeconds,
         customHotwords: String = defaultCustomHotwords,
-        screenContextEnabled: Bool = defaultScreenContextEnabled
+        screenContextEnabled: Bool = defaultScreenContextEnabled,
+        oralPolishEnabled: Bool = defaultOralPolishEnabled
     ) {
         self.language = language
         self.asrModel = asrModel
@@ -41,6 +45,7 @@ struct AppConfig: Codable, Equatable {
         self.vadEndSilenceSeconds = vadEndSilenceSeconds
         self.customHotwords = customHotwords
         self.screenContextEnabled = screenContextEnabled
+        self.oralPolishEnabled = oralPolishEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -50,6 +55,7 @@ struct AppConfig: Codable, Equatable {
         case vadEndSilenceSeconds
         case customHotwords
         case screenContextEnabled
+        case oralPolishEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -64,6 +70,8 @@ struct AppConfig: Codable, Equatable {
             ?? Self.defaultCustomHotwords
         screenContextEnabled = try container.decodeIfPresent(Bool.self, forKey: .screenContextEnabled)
             ?? Self.defaultScreenContextEnabled
+        oralPolishEnabled = try container.decodeIfPresent(Bool.self, forKey: .oralPolishEnabled)
+            ?? Self.defaultOralPolishEnabled
     }
 }
 
@@ -122,5 +130,19 @@ enum RecognitionLanguage: String, CaseIterable {
 
     init?(asrValue: String) {
         self.init(rawValue: asrValue)
+    }
+}
+
+enum OralPolishPreset: String, CaseIterable {
+    case off = "off"
+    case localLLM = "local_llm"
+
+    var isEnabled: Bool { self == .localLLM }
+
+    var displayName: String {
+        switch self {
+        case .off: return "Off (default, raw dictation)"
+        case .localLLM: return "Local LLM (rules + Qwen3 1.7B)"
+        }
     }
 }

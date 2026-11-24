@@ -22,6 +22,7 @@ final class ConfigManager {
     var vadEndSilenceSeconds: Double { config.vadEndSilenceSeconds }
     var customHotwords: String { config.customHotwords }
     var screenContextEnabled: Bool { config.screenContextEnabled }
+    var oralPolishEnabled: Bool { config.oralPolishEnabled }
 
     func saveLanguage(_ language: String) throws {
         guard RecognitionLanguage(asrValue: language) != nil else {
@@ -66,6 +67,12 @@ final class ConfigManager {
         config.screenContextEnabled = enabled
         try save()
         AppLogger.log("config_saved screen_context_enabled=\(enabled) path=\(configURL.path)")
+    }
+
+    func saveOralPolishEnabled(_ enabled: Bool) throws {
+        config.oralPolishEnabled = enabled
+        try save()
+        AppLogger.log("config_saved oral_polish_enabled=\(enabled) path=\(configURL.path)")
     }
 
     // MARK: - Private

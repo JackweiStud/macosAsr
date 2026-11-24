@@ -180,6 +180,20 @@ class HotwordsAndScreenContextTests(unittest.TestCase):
         settings = (root / "MacApp/macosAsrApp/SettingsWindowController.swift").read_text()
         self.assertIn("screenContextCheckbox", settings)
         self.assertIn("hotwordsTextView", settings)
+        self.assertIn("oralPolishPopUp", settings)
+        self.assertIn("static let defaultOralPolishEnabled = false", app_config)
+
+    def test_config_update_toggles_oral_polish_enabled(self) -> None:
+        config = AsrConfig(oral_polish_enabled=False)
+        server = DaemonServer(Path("/tmp/macosasr-polish-test.sock"), config, skip_model=True)
+
+        events = server._dispatch({"protocol": 1, "cmd": "config_update", "oral_polish_enabled": True})
+        self.assertTrue(config.oral_polish_enabled)
+        self.assertTrue(events[0]["oral_polish_enabled"])
+
+        events_off = server._dispatch({"protocol": 1, "cmd": "config_update", "oral_polish_enabled": False})
+        self.assertFalse(config.oral_polish_enabled)
+        self.assertFalse(events_off[0]["oral_polish_enabled"])
 
     def test_prompt_echo_hallucination_guardrail(self) -> None:
         prompt = "常用术语：FastAPI, PostgreSQL\n当前窗口：T3 Code (Beta) - T3 Code (Beta)\n前文：主干上推到远端。"

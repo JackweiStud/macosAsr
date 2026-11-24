@@ -140,20 +140,22 @@ final class DaemonManager {
         client.send(cmd: "discard_utterance", extra: ["session_id": sessionID, "before": timestamp])
     }
 
-    /// 把设置页的断句等待 / live 刷新 / 自定义热词推到已运行的 daemon（不重启、不换模型）。
+    /// 把设置页的断句等待 / live 刷新 / 自定义热词 / 口语顺稿开关推到已运行的 daemon（不重启、不换模型）。
     func pushRuntimeDictationSettings() {
         guard clientConnected else { return }
         let hotwords = ConfigManager.shared.customHotwords
+        let oralPolish = ConfigManager.shared.oralPolishEnabled
         client.send(
             cmd: "config_update",
             extra: [
                 "partial_interval_seconds": ConfigManager.shared.partialIntervalSeconds,
                 "vad_end_silence_seconds": ConfigManager.shared.vadEndSilenceSeconds,
                 "custom_hotwords": hotwords,
+                "oral_polish_enabled": oralPolish,
             ]
         )
         AppLogger.log(
-            "config_update pushed partial=\(ConfigManager.shared.partialIntervalSeconds) vad_end=\(ConfigManager.shared.vadEndSilenceSeconds) hotwords_chars=\(hotwords.count)"
+            "config_update pushed partial=\(ConfigManager.shared.partialIntervalSeconds) vad_end=\(ConfigManager.shared.vadEndSilenceSeconds) hotwords_chars=\(hotwords.count) oral_polish=\(oralPolish)"
         )
     }
 
@@ -338,6 +340,9 @@ final class DaemonManager {
         env["MACOSASR_VAD_END_SILENCE"] = String(format: "%.2f", ConfigManager.shared.vadEndSilenceSeconds)
         if !ConfigManager.shared.customHotwords.isEmpty && env["MACOSASR_CONTEXT"] == nil {
             env["MACOSASR_CONTEXT"] = ConfigManager.shared.customHotwords
+        }
+        if env["MACOSASR_ORAL_POLISH"] == nil {
+            env["MACOSASR_ORAL_POLISH"] = ConfigManager.shared.oralPolishEnabled ? "1" : "0"
         }
         task.environment = env
         task.standardOutput = FileHandle.nullDevice

@@ -87,6 +87,14 @@ def apply_env_overrides(config: AsrConfig, environ: dict[str, str]) -> None:
     if semantic_fast_min_env:
         config.semantic_fast_min_silence_seconds = max(0.2, float(semantic_fast_min_env))
 
+    oral_polish_env = environ.get("MACOSASR_ORAL_POLISH")
+    if oral_polish_env is not None:
+        config.oral_polish_enabled = _env_flag_enabled(oral_polish_env)
+
+    oral_polish_model_env = environ.get("MACOSASR_ORAL_POLISH_MODEL")
+    if oral_polish_model_env:
+        config.oral_polish_model = oral_polish_model_env.strip()
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(

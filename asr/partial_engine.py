@@ -27,6 +27,7 @@ from asr.asr_core import (
 )
 from asr.config import AsrConfig
 from asr.endpointing import EndpointDecision, compute_end_silence_threshold
+from asr.oral_polisher import OralPolisher
 from asr.streaming_decoder import Qwen3StreamingSession, supports_native_streaming
 from asr.transcript import RollingTranscript
 
@@ -81,6 +82,11 @@ class _FlushUtterance:
     done: threading.Event
 
 
+@dataclasses.dataclass(frozen=True)
+class _ConfigurePolisher:
+    enabled: bool
+
+
 class PartialEngine:
     """Mic always on; VAD/ASR runs only when listening=True.
 
@@ -97,7 +103,10 @@ class PartialEngine:
         self._config = config
         self._callback = callback
         self._audio_queue: queue.Queue[AudioBlock] = queue.Queue(maxsize=1024)
-        self._control_queue: queue.Queue[tuple[str, threading.Event] | _DiscardUtterance | _FlushUtterance] = queue.Queue()
+        self._control_queue: queue.Queue[
+            tuple[str, threading.Event] | _DiscardUtterance | _FlushUtterance | _ConfigurePolisher
+        ] = queue.Queue()
+        self._polisher = OralPolisher()
         # AudioBlock timestamps use perf_counter; IPC timestamps use UNIX seconds.
         self._clock_offset: Callable[[], float] = lambda: time.time() - time.perf_counter()
         self._discard_before = float("-inf")
@@ -181,6 +190,11 @@ class PartialEngine:
     def discard_utterance(self, before: float) -> None:
         """Queue an input reset without stopping the microphone or touching MLX here."""
         self._control_queue.put(_DiscardUtterance(before=before))
+
+    def set_oral_polish_enabled(self, enabled: bool) -> None:
+        """Queue polisher load/unload on the MLX worker thread."""
+        self._config.oral_polish_enabled = bool(enabled)
+        self._control_queue.put(_ConfigurePolisher(enabled=bool(enabled)))
 
     def start_recording(self) -> None:
         self._clear_audio_state()
@@ -347,6 +361,8 @@ class PartialEngine:
             self._model_loaded = True
             self._calibrate_noise(cfg)
             self._close_mic_stream()
+            if cfg.oral_polish_enabled:
+                self._polisher.preload_if_cached(cfg.oral_polish_model)
             while not self._stop_event.is_set():
                 self._drain_control_queue()
                 self._drain_audio_blocks()
@@ -361,6 +377,8 @@ class PartialEngine:
         except Exception as exc:
             logger.exception("worker loop failed")
             self._callback.on_error(str(exc))
+        finally:
+            self._polisher.unload()
 
     def _drain_control_queue(self) -> None:
         while True:
@@ -370,6 +388,12 @@ class PartialEngine:
                 break
             if isinstance(cmd, _DiscardUtterance):
                 self._discard_utterance_before(cmd.before)
+                continue
+            if isinstance(cmd, _ConfigurePolisher):
+                if cmd.enabled:
+                    self._polisher.preload_if_cached(self._config.oral_polish_model)
+                else:
+                    self._polisher.unload()
                 continue
             if isinstance(cmd, _FlushUtterance) or (isinstance(cmd, tuple) and cmd[0] == "flush"):
                 before, done = (cmd.before, cmd.done) if isinstance(cmd, _FlushUtterance) else (time.perf_counter(), cmd[1])
@@ -939,6 +963,11 @@ class PartialEngine:
                 self._callback.on_filtered(utterance.utterance_id, "", "prompt_echo", self._utterance_timestamp(utterance))
                 return
         final_text = utterance.transcript.finish(hypothesis)
+        polish_suffix = ""
+        if final_text and not should_drop_final_text(final_text, cfg) and cfg.oral_polish_enabled:
+            polish_res = self._polisher.polish(final_text, cfg)
+            final_text = polish_res.text
+            polish_suffix = f" polish={polish_res.mode}({polish_res.reason},{polish_res.elapsed_ms:.0f}ms)"
         final_ms = (time.perf_counter() - final_start) * 1000.0
         uid = utterance.utterance_id
         utterance_started_at = self._utterance_timestamp(utterance)
@@ -950,7 +979,7 @@ class PartialEngine:
         logger.info(
             "final_metrics u=%s reason=%s utterance_seconds=%.2f final_audio_seconds=%.2f "
             "trimmed_seconds=%.2f final_ms=%.1f partial_count=%s final_len=%s silence_seconds=%.2f"
-            "%s%s",
+            "%s%s%s",
             uid,
             reason,
             utterance_seconds,
@@ -961,6 +990,7 @@ class PartialEngine:
             len(final_text),
             utterance.silence_run_seconds,
             endpoint_suffix,
+            polish_suffix,
             (
                 f" native_streaming=True max_partial_ms={utterance.max_partial_ms:.1f} "
                 f"cached_blocks={cached_blocks} seals={utterance.native_seal_count}"

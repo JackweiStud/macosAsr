@@ -10,6 +10,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let partialIntervalPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let hotwordsTextView = NSTextView(frame: .zero)
     private let hotwordsStatusLabel = NSTextField(labelWithString: "")
+    private let oralPolishPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let screenContextCheckbox = NSButton(
         checkboxWithTitle: "Read active window & cursor context (optional)",
         target: nil,
@@ -18,7 +19,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 590),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -145,6 +146,24 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         hotwordsStatusLabel.textColor = .secondaryLabelColor
         hotwordsStatusLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        let oralPolishLabel = NSTextField(labelWithString: "Oral polish:")
+        oralPolishLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        oralPolishPopUp.translatesAutoresizingMaskIntoConstraints = false
+        for preset in OralPolishPreset.allCases {
+            oralPolishPopUp.addItem(withTitle: preset.displayName)
+            oralPolishPopUp.lastItem?.representedObject = preset.rawValue
+        }
+        oralPolishPopUp.target = self
+        oralPolishPopUp.action = #selector(oralPolishChanged(_:))
+
+        let oralPolishHint = NSTextField(
+            wrappingLabelWithString: "Applies at sentence end to clean fillers, stutters, and punctuation while strictly keeping all English terms and numbers. Off uses 0 extra RAM; Local LLM loads ~1 GB on demand and frees it when turned off."
+        )
+        oralPolishHint.font = NSFont.systemFont(ofSize: 11)
+        oralPolishHint.textColor = .secondaryLabelColor
+        oralPolishHint.translatesAutoresizingMaskIntoConstraints = false
+
         screenContextCheckbox.target = self
         screenContextCheckbox.action = #selector(screenContextToggled(_:))
         screenContextCheckbox.translatesAutoresizingMaskIntoConstraints = false
@@ -160,7 +179,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             label, languagePopUp, advancedTitle, modelLabel, asrModelPopUp,
             vadLabel, vadEndSilencePopUp, partialLabel, partialIntervalPopUp, hint,
             contextTitle, hotwordsLabel, scrollView, applyHotwordsButton,
-            resetHotwordsButton, hotwordsStatusLabel, screenContextCheckbox, screenContextHint,
+            resetHotwordsButton, hotwordsStatusLabel, oralPolishLabel, oralPolishPopUp,
+            oralPolishHint, screenContextCheckbox, screenContextHint,
         ] {
             contentView.addSubview(view)
         }
@@ -227,7 +247,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             hotwordsStatusLabel.leadingAnchor.constraint(equalTo: resetHotwordsButton.trailingAnchor, constant: 12),
             hotwordsStatusLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -24),
 
-            screenContextCheckbox.topAnchor.constraint(equalTo: applyHotwordsButton.bottomAnchor, constant: 16),
+            oralPolishLabel.topAnchor.constraint(equalTo: applyHotwordsButton.bottomAnchor, constant: 16),
+            oralPolishLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+            oralPolishLabel.widthAnchor.constraint(equalTo: label.widthAnchor),
+
+            oralPolishPopUp.centerYAnchor.constraint(equalTo: oralPolishLabel.centerYAnchor),
+            oralPolishPopUp.leadingAnchor.constraint(equalTo: asrModelPopUp.leadingAnchor),
+            oralPolishPopUp.widthAnchor.constraint(equalTo: asrModelPopUp.widthAnchor),
+
+            oralPolishHint.topAnchor.constraint(equalTo: oralPolishLabel.bottomAnchor, constant: 6),
+            oralPolishHint.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+            oralPolishHint.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
+
+            screenContextCheckbox.topAnchor.constraint(equalTo: oralPolishHint.bottomAnchor, constant: 14),
             screenContextCheckbox.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
 
             screenContextHint.topAnchor.constraint(equalTo: screenContextCheckbox.bottomAnchor, constant: 4),
@@ -255,6 +287,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         selectPopup(partialIntervalPopUp, value: ConfigManager.shared.partialIntervalSeconds)
         hotwordsTextView.string = ConfigManager.shared.customHotwords
         hotwordsStatusLabel.stringValue = "Applies immediately without restart"
+        selectPopup(
+            oralPolishPopUp,
+            value: ConfigManager.shared.oralPolishEnabled ? OralPolishPreset.localLLM.rawValue : OralPolishPreset.off.rawValue
+        )
         screenContextCheckbox.state = ConfigManager.shared.screenContextEnabled ? .on : .off
     }
 
@@ -294,6 +330,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     @objc private func resetHotwordsClicked() {
         hotwordsTextView.string = AppConfig.defaultCustomHotwords
         saveHotwords(AppConfig.defaultCustomHotwords, showStatus: true)
+    }
+
+    @objc private func oralPolishChanged(_ sender: NSPopUpButton) {
+        guard let raw = sender.selectedItem?.representedObject as? String,
+              let preset = OralPolishPreset(rawValue: raw)
+        else { return }
+        do {
+            try ConfigManager.shared.saveOralPolishEnabled(preset.isEnabled)
+            DaemonManager.shared.pushRuntimeDictationSettings()
+        } catch {
+            AppLogger.log("config_save_failed \(error.localizedDescription)", level: "ERROR")
+            reloadFromConfig()
+        }
     }
 
     @objc private func screenContextToggled(_ sender: NSButton) {

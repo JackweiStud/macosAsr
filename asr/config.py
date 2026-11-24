@@ -72,6 +72,11 @@ class AsrConfig:
     min_final_chars: int = 2  # final 最短字符数，过短丢弃
     filter_fillers: bool = True  # 是否过滤「嗯/啊」等填充词
 
+    # --- 句末可选本地轻度口语顺稿（Top 1）---
+    oral_polish_enabled: bool = False  # 默认关闭（0 内存）；开启后规则快洗 + 本地 LLM 语义顺稿 + 强守卫
+    oral_polish_model: str = "mlx-community/Qwen3-1.7B-4bit"  # 按需懒加载，关闭即释放
+    oral_polish_min_chars: int = 10  # 短于此字数仅跑 0ms 规则，不触发 LLM
+
     def log_summary(self) -> str:
         return (
             f"model={self.model} "
@@ -115,5 +120,6 @@ class AsrConfig:
             f"warmup_enabled={self.warmup_enabled} "
             f"warmup_audio={self.warmup_audio_seconds:.2f}s "
             f"min_final_chars={self.min_final_chars} "
-            f"filter_fillers={self.filter_fillers}"
+            f"filter_fillers={self.filter_fillers} "
+            f"oral_polish={self.oral_polish_enabled}"
         )

@@ -54,6 +54,7 @@ class AsrConfigTests(unittest.TestCase):
         self.assertIn("warmup_audio=1.00s", summary)
         self.assertIn("min_final_chars=2", summary)
         self.assertIn("filter_fillers=True", summary)
+        self.assertIn("oral_polish=False", summary)
 
     def test_apply_env_overrides_accepts_developer_tuning_values(self) -> None:
         config = AsrConfig()

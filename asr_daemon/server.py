@@ -223,11 +223,20 @@ class DaemonServer:
                     self._config.system_prompt = formatted
             else:
                 logger.warning("config_update ignored non-string custom_hotwords")
+        if "oral_polish_enabled" in msg:
+            raw_polish = msg.get("oral_polish_enabled")
+            if isinstance(raw_polish, bool):
+                self._config.oral_polish_enabled = raw_polish
+                if self._engine is not None:
+                    self._engine.set_oral_polish_enabled(raw_polish)
+            else:
+                logger.warning("config_update ignored non-bool oral_polish_enabled=%r", raw_polish)
         logger.info(
-            "config_updated partial_interval=%.2fs vad_end_silence=%.2fs context_chars=%s",
+            "config_updated partial_interval=%.2fs vad_end_silence=%.2fs context_chars=%s oral_polish=%s",
             self._config.partial_interval_seconds,
             self._config.vad_end_silence_seconds,
             len(self._config.system_prompt),
+            self._config.oral_polish_enabled,
         )
 
     def _dispatch(self, msg: dict) -> list[dict]:
@@ -267,6 +276,7 @@ class DaemonServer:
                     "partial_interval_seconds": self._config.partial_interval_seconds,
                     "vad_end_silence_seconds": self._config.vad_end_silence_seconds,
                     "context_chars": len(self._config.system_prompt),
+                    "oral_polish_enabled": self._config.oral_polish_enabled,
                 }
             ]
 

@@ -14,6 +14,7 @@ final class ConfigManager {
     let vadEndSilenceSeconds = 1.5
     let customHotwords = ""
     let screenContextEnabled = false
+    let oralPolishEnabled = false
 }
 
 enum ProjectPaths {
