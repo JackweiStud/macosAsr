@@ -124,9 +124,9 @@ brew install portaudio
 ./scripts/launch_macapp.sh
 ```
 
-菜单栏出现 **`⏳ ASR`** → 约 30 秒后变为 **`🎤 ASR`**（模型加载 + 噪声校准，期间保持安静 3 秒）。
+菜单栏出现 **`⏳ ASR`**（首次未缓存模型下载时实时显示 **`⏳ 42%`** 及悬浮下载进度）→ 约 30 秒后变为 **`🎤 ASR`**（模型加载 + 预热 + 3 秒噪声校准，期间保持安静 3 秒）。
 
-> **无需** 手动运行 `python -m asr_daemon`，App 会自动启动。
+> **无需** 手动运行 `python -m asr_daemon`，App 会自动启动。若环境噪音变化（如切换咖啡馆/开空调），空闲时可随时点菜单栏 **Recalibrate Noise…** 原地重校准 3 秒，无需重启。
 
 ### 6. 授权辅助功能（一次性）
 
@@ -150,7 +150,7 @@ brew install portaudio
 3. 对着麦克风说话（中文或英文 — 在 **Settings…** 中选择语言）
 4. 再按 **⌥Z** 结束（或 **Stop Live Dictation**）
 
-听写中菜单栏显示 **`🟢 Dictating…`**。
+听写中菜单栏显示 **`🟢 Dictating…`**，同时屏幕底部弹出极简非抢焦黑曜石悬浮 HUD 胶囊（展示 7 柱实时麦克风声波、`Listening` / `Speaking` / `Polishing…` 状态；支持鼠标自由拖动并记忆位置、双击复位，绝不抢焦点也不打断当前听写）。
 
 未听写时，启动校准完成后麦克风会关闭；macOS 录音橙点只应在校准或正在听写时出现。听写中如果你手动敲键盘或点击鼠标，App 会放弃当前未提交的 ASR pending 文本，后续只追加，避免退格删掉你刚输入的内容。
 
@@ -226,7 +226,11 @@ cd /path/to/macosAsr
 - **ASR model**：默认 `mlx-community/Qwen3-ASR-0.6B-8bit`（推荐，兼顾延迟与准确率），可选 `Qwen3-ASR-1.7B-8bit`（切换模型需重启 App）
 - **Sentence end wait / Live text refresh**：即时热更新，无需重启（默认 `1.5s` / `0.5s`，也支持启动前用 `MACOSASR_PARTIAL_INTERVAL`、`MACOSASR_VAD_END_SILENCE` 覆盖）
 - **Custom hotwords / terms**：预置常用开发与项目术语，支持自由增删改并点击 **Save & Apply** 即时生效，显著提升中英混说与专有名词识别率
+- **Oral polish（两档，即时热切换）**：
+  - `Off (default, raw dictation)`：默认关闭，0 额外内存、0 额外延迟，纯原始听写
+  - `Local LLM (rules + Qwen3 1.7B)`：句末本地顺稿（规则预清理 + 本地 `mlx-community/Qwen3-1.7B-4bit` + Prefix KV Cache 复用 + 强数学守卫防截断/防扩写/保英文与数字），按需加载（~1 GB 内存，单句顺稿 ~200–450 ms），切回 `Off` 立即卸载释放内存
 - **Read active window & cursor context（默认关闭）**：按需勾选后，在按 `⌥Z` 时本地读取当前窗口标题与光标前最多 120 字辅助纠偏（不出本机、不记日志、自动跳过密码框与密码管理器）
+- **Show floating status HUD capsule while dictating（默认开启）**：控制非抢焦悬浮状态胶囊的显隐，即时生效
 
 **流式与断句机制（当前默认启用）**：
 

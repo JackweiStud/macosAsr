@@ -126,9 +126,9 @@ Expected: `Signed with: macosAsr Local`
 ./scripts/launch_macapp.sh
 ```
 
-Menu bar shows **`⏳ ASR`**, then **`🎤 ASR`** after ~30s (model load + 3s noise calibration — stay quiet).
+Menu bar shows **`⏳ ASR`** (or **`⏳ 42%`** with floating progress capsule on first-time model download), then **`🎤 ASR`** after ~30s (model load + warmup + 3s noise calibration — stay quiet).
 
-> You do **not** need to run `python -m asr_daemon` manually; the app starts it.
+> You do **not** need to run `python -m asr_daemon` manually; the app starts it. If ambient noise changes later, click **Recalibrate Noise…** in the menu bar while idle for an instant 3s recalibration without restarting.
 
 ### 6. Accessibility (once)
 
@@ -152,7 +152,7 @@ Without this, the menu still works; **⌥Z** only works globally after authoriza
 3. Speak (Chinese or English — set language under **Settings…**)
 4. Press **⌥Z** again to stop (or **Stop Live Dictation**)
 
-While dictating, the menu bar shows **`🟢 Dictating…`**.
+While dictating, the menu bar shows **`🟢 Dictating…`** alongside a minimal non-activating floating HUD capsule (showing a live 7-bar mic waveform and `Listening` / `Speaking` / `Polishing…` status; drag to move anywhere with saved position, double-click to recenter, never steals focus or interrupts dictation).
 
 After startup calibration, the microphone is closed while idle; the macOS recording indicator should only appear during calibration or active dictation. If you type or click while dictating, the app discards the current uncommitted ASR pending text and only appends afterward, so it does not backspace over what you just entered.
 
@@ -228,7 +228,11 @@ Open **🎤 ASR → Settings…** to configure and persist options in `~/Library
 - **ASR model**: defaults to `mlx-community/Qwen3-ASR-0.6B-8bit` (recommended for low-latency streaming); `Qwen3-ASR-1.7B-8bit` is also available (model switch requires restarting the app)
 - **Sentence end wait / Live text refresh**: hot-applied immediately without restarting (env overrides `MACOSASR_PARTIAL_INTERVAL` and `MACOSASR_VAD_END_SILENCE` are also supported)
 - **Custom hotwords / terms**: pre-populated with common developer terms, editable and hot-applied via **Save & Apply** to improve mixed-language technical terminology accuracy
+- **Oral polish (2 modes, hot-switched without restart)**:
+  - `Off (default, raw dictation)`: 0 extra RAM, 0 extra latency, verbatim dictation
+  - `Local LLM (rules + Qwen3 1.7B)`: end-of-utterance local smoothing (deterministic filler/stutter rules + lazy-loaded `mlx-community/Qwen3-1.7B-4bit` with Prefix KV Cache reuse + strict anti-truncation/anti-expansion/term-preservation guardrails; ~200–450 ms per utterance, ~1 GB RAM loaded on demand and freed immediately when switched back to `Off`)
 - **Read active window & cursor context (off by default)**: opt-in local-only context capture at `⌥Z` start (reads active window title and up to 120 chars before the cursor; never logged; automatically skips password fields and credential managers)
+- **Show floating status HUD capsule while dictating (on by default)**: toggles the draggable non-activating HUD capsule immediately
 
 **Streaming & endpointing (enabled by default)**:
 

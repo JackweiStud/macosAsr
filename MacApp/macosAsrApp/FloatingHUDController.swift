@@ -261,7 +261,7 @@ final class FloatingHUDController {
                 idleColor: NSColor.white.withAlphaComponent(0.42),
                 active: speaking
             )
-            steadyTextWidth = 60
+            steadyTextWidth = 55
         case .polishing:
             showMeter = true
             showProgress = false
@@ -272,7 +272,7 @@ final class FloatingHUDController {
                 idleColor: NSColor(calibratedRed: 0.66, green: 0.46, blue: 0.96, alpha: 0.6),
                 active: true
             )
-            steadyTextWidth = 60
+            steadyTextWidth = 55
         case .finishing:
             showMeter = false
             showProgress = false
@@ -323,18 +323,18 @@ final class FloatingHUDController {
     }
 
     private func layoutCapsule(showMeter: Bool, showProgress: Bool, steadyTextWidth: CGFloat?) {
-        let paddingLeft: CGFloat = 10
-        let paddingRight: CGFloat = 14
+        let paddingLeft: CGFloat = 12
+        let paddingRight: CGFloat = 13
         let gripWidth: CGFloat = 6
-        let beaconSize: CGFloat = 14
+        let beaconSize: CGFloat = 12
         let meterWidth: CGFloat = showMeter ? 29 : 0
         let progressWidth: CGFloat = showProgress ? 54 : 0
         let measuredTextWidth = ceil(label.frame.width)
         let textSlotWidth = max(measuredTextWidth, steadyTextWidth ?? 0)
 
-        var pillWidth = paddingLeft + gripWidth + 7 + beaconSize + 7 + textSlotWidth + paddingRight
+        var pillWidth = paddingLeft + gripWidth + 6 + beaconSize + 7 + textSlotWidth + paddingRight
         if showMeter {
-            pillWidth += meterWidth + 9
+            pillWidth += meterWidth + 8
         }
         if showProgress {
             pillWidth += progressWidth + 10
@@ -373,7 +373,7 @@ final class FloatingHUDController {
 
         var x = paddingLeft
         gripView.frame = NSRect(x: x, y: (pillHeight - 12) / 2.0, width: gripWidth, height: 12)
-        x += gripWidth + 7
+        x += gripWidth + 6
 
         beaconView.frame = NSRect(x: x, y: (pillHeight - beaconSize) / 2.0, width: beaconSize, height: beaconSize)
         x += beaconSize + 7
@@ -385,7 +385,7 @@ final class FloatingHUDController {
                 phase: phase * 1.3,
                 mode: presentation == .polishing ? .shimmer : .live
             )
-            x += meterWidth + 9
+            x += meterWidth + 8
         }
 
         let labelHeight = ceil(label.frame.height)
@@ -773,22 +773,35 @@ private final class _DragGripView: NSView {
     }
 }
 
-/// Glowing status beacon with a soft pulsing ambient halo.
+/// Glowing OLED-style status beacon with a soft feathered radial LED bloom.
 private final class _StatusBeaconView: NSView {
-    private let haloLayer = CALayer()
+    private let bloomLayer = CALayer()
     private let coreLayer = CALayer()
 
     var accentColor: NSColor = .systemGreen {
         didSet {
-            coreLayer.backgroundColor = accentColor.cgColor
-            haloLayer.backgroundColor = accentColor.withAlphaComponent(0.26).cgColor
+            let cg = accentColor.cgColor
+            coreLayer.backgroundColor = cg
+            coreLayer.shadowColor = cg
+            bloomLayer.backgroundColor = cg
+            bloomLayer.shadowColor = cg
         }
     }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.addSublayer(haloLayer)
+        layer?.masksToBounds = false
+
+        bloomLayer.shadowOffset = .zero
+        bloomLayer.shadowRadius = 6.5
+        bloomLayer.shadowOpacity = 0.55
+
+        coreLayer.shadowOffset = .zero
+        coreLayer.shadowRadius = 2.5
+        coreLayer.shadowOpacity = 0.85
+
+        layer?.addSublayer(bloomLayer)
         layer?.addSublayer(coreLayer)
     }
 
@@ -801,24 +814,28 @@ private final class _StatusBeaconView: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        haloLayer.frame = bounds
-        haloLayer.cornerRadius = bounds.width / 2.0
         let coreSize: CGFloat = 7
-        coreLayer.frame = CGRect(
+        let coreFrame = CGRect(
             x: (bounds.width - coreSize) / 2.0,
             y: (bounds.height - coreSize) / 2.0,
             width: coreSize,
             height: coreSize
         )
+        let circlePath = CGPath(ellipseIn: CGRect(origin: .zero, size: coreFrame.size), transform: nil)
+        bloomLayer.frame = coreFrame
+        bloomLayer.cornerRadius = coreSize / 2.0
+        bloomLayer.shadowPath = circlePath
+        coreLayer.frame = coreFrame
         coreLayer.cornerRadius = coreSize / 2.0
+        coreLayer.shadowPath = circlePath
         CATransaction.commit()
     }
 
     func setPulse(_ pulse: CGFloat) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let alpha = 0.14 + 0.22 * pulse
-        haloLayer.backgroundColor = accentColor.withAlphaComponent(alpha).cgColor
+        bloomLayer.shadowOpacity = Float(0.32 + 0.42 * pulse)
+        bloomLayer.shadowRadius = 5.0 + 2.5 * pulse
         CATransaction.commit()
     }
 }
