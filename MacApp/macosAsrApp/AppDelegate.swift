@@ -96,6 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyMonitor.onUserInput = { [weak dictation] in
             dictation?.notifyUserInputInterrupted()
         }
+        hotkeyMonitor.shouldIgnoreMouseEvent = { point in
+            FloatingHUDController.shared.containsQuartzPoint(point)
+        }
         if !hotkeyMonitor.isInputMonitoringGranted {
             _ = hotkeyMonitor.requestInputMonitoringAccess()
         }

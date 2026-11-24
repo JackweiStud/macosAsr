@@ -208,19 +208,24 @@ class PingProgressAndRecalibrateTests(unittest.TestCase):
 
 
 class FloatingHUDGuardrailTests(unittest.TestCase):
-    def test_floating_hud_is_strictly_non_activating_and_click_through(self) -> None:
+    def test_floating_hud_is_strictly_non_activating_and_draggable(self) -> None:
         root = Path(__file__).resolve().parents[1]
         hud_src = (root / "MacApp/macosAsrApp/FloatingHUDController.swift").read_text()
         self.assertIn(".nonactivatingPanel", hud_src)
         self.assertIn("override var canBecomeKey: Bool { false }", hud_src)
         self.assertIn("override var canBecomeMain: Bool { false }", hud_src)
-        self.assertIn("panel.ignoresMouseEvents = true", hud_src)
         self.assertIn("panel.orderFrontRegardless()", hud_src)
+        self.assertIn("containsQuartzPoint", hud_src)
+        self.assertIn("override func mouseDragged", hud_src)
         self.assertNotIn("makeKeyAndOrderFront", hud_src)
+
+        hotkey_src = (root / "MacApp/macosAsrApp/GlobalHotkeyMonitor.swift").read_text()
+        self.assertIn("shouldIgnoreMouseEvent", hotkey_src)
 
         app_delegate = (root / "MacApp/macosAsrApp/AppDelegate.swift").read_text()
         self.assertIn("Recalibrate Noise…", app_delegate)
         self.assertIn("⏳ \\(pct)%", app_delegate)
+        self.assertIn("containsQuartzPoint", app_delegate)
 
         app_config = (root / "MacApp/macosAsrApp/AppConfig.swift").read_text()
         self.assertIn("static let defaultHudEnabled = true", app_config)

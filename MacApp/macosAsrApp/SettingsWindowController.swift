@@ -185,7 +185,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         hudCheckbox.translatesAutoresizingMaskIntoConstraints = false
 
         let hudHint = NSTextField(
-            wrappingLabelWithString: "Non-activating, click-through bottom capsule showing live mic meter, polishing status, and noise calibration progress without stealing focus."
+            wrappingLabelWithString: "Non-activating obsidian glass capsule showing live mic waveform, polishing status, and calibration progress. Drag to move anywhere (double-click to recenter); never steals focus."
         )
         hudHint.font = NSFont.systemFont(ofSize: 11)
         hudHint.textColor = .secondaryLabelColor

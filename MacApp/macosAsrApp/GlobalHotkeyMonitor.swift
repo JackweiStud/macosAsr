@@ -5,6 +5,7 @@ import Cocoa
 final class GlobalHotkeyMonitor {
     var onTrigger: (() -> Void)?
     var onUserInput: (() -> Void)?
+    var shouldIgnoreMouseEvent: ((CGPoint) -> Bool)?
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -133,8 +134,15 @@ final class GlobalHotkeyMonitor {
             return true
         }
 
-        if type == .keyDown || type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
-            // Invalidate injection tokens immediately, before the click/key reaches the target app.
+        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
+            if shouldIgnoreMouseEvent?(event.location) == true {
+                return false
+            }
+            onUserInput?()
+            return false
+        }
+        if type == .keyDown {
+            // Invalidate injection tokens immediately, before the key reaches the target app.
             onUserInput?()
         }
         return false
